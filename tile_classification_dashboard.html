@@ -219,6 +219,54 @@ body{
 }
 body.dragging .drag-overlay{display:flex;}
 
+/* ---------- Class manager modal ---------- */
+.modal-overlay{
+  position:fixed;inset:0;z-index:3000;background:rgba(35,32,23,.55);
+  display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;
+}
+.modal-card{
+  background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px 24px 26px;max-width:760px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.3);
+}
+.modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.class-mgr-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+.class-mgr-table th{
+  text-align:left;font-family:var(--font-display);font-weight:600;font-size:11.5px;
+  color:var(--ink-soft);border-bottom:1px solid var(--ink);padding:6px 8px;white-space:nowrap;
+}
+.class-mgr-table td{padding:5px 8px;border-bottom:1px solid var(--line-soft);white-space:nowrap;}
+.class-mgr-table tr.in-group td{color:var(--ink-soft);}
+.class-chip{
+  font-family:var(--font-mono);font-size:10.5px;padding:2px 8px;border-radius:10px;font-weight:600;
+  display:inline-block;background:var(--line-soft);color:var(--ink-soft);
+}
+.class-group-create{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap;}
+.group-card{
+  background:#fff;border:1px solid var(--line-soft);border-radius:4px;
+  padding:10px 12px;margin-bottom:8px;
+}
+.group-card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+.group-name-input{
+  font-family:var(--font-display);font-weight:700;font-size:13.5px;border:1px solid transparent;
+  background:transparent;padding:2px 4px;border-radius:3px;flex:1;min-width:100px;
+}
+.group-name-input:hover,.group-name-input:focus{border-color:var(--line);background:#fff;outline:none;}
+.member-chip{
+  font-family:var(--font-mono);font-size:11px;padding:3px 6px 3px 10px;border-radius:10px;
+  background:var(--bg);border:1px solid var(--line);display:inline-flex;align-items:center;gap:5px;margin:2px 4px 2px 0;
+}
+.member-chip button{
+  background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:11px;padding:0 2px;line-height:1;
+}
+.member-chip button:hover{color:var(--accent-orange);}
+.preset-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}
+.empty-note{color:var(--ink-soft);font-size:12.5px;padding:6px 0;}
+
+/* ---------- Confusion matrix ---------- */
+.cm-block{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);}
+.cm-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+.cm-scroll{overflow-x:auto;}
+
 </style>
 </head>
 <body>
@@ -239,18 +287,15 @@ body.dragging .drag-overlay{display:flex;}
           <option value="">All models</option>
         </select>
       </label>
-      <label class="filter-label checkbox-label" title="A tile with 0 support for a class still gets precision/recall/F1 = 0 for it, which drags down macro averages for a class that was never actually present there. Checking this hides those tiles everywhere except the warning badge in the Tiles table.">
+      <label class="filter-label checkbox-label" title="A class that has a key in a tile's own report but 0 ground-truth support there still gets precision/recall/F1 = 0 for it, which drags down macro averages for a class that was never actually present there. Checking this hides those tiles everywhere except the warning badge in the Tiles table. A class that is simply absent from a tile's JSON (different taxonomy) never counts as 'missing'.">
         <input type="checkbox" id="excludeZeroSupportCheckbox" checked>
         Hide tiles with missing classes (0 support)
       </label>
-      <label class="filter-label checkbox-label" title="Aggregates Building roofs, Building facades, and Roof structures into a single Building class by summing their confusion matrix entries. Useful when a model does not distinguish between the three sub-classes.">
-        <input type="checkbox" id="aggregateBuildingCheckbox">
-        Aggregate building classes
+      <label class="filter-label checkbox-label" id="showAllClassesLabel" title="By default only classes present in every loaded tile are shown, so tiles with different class taxonomies stay comparable. Check this to show the union of every class found anywhere instead.">
+        <input type="checkbox" id="showAllClassesCheckbox">
+        Show all classes
       </label>
-      <label class="filter-label checkbox-label" title="Drops the 'None' (unclassified) class from every chart, table and average — including balanced accuracy, macro F1 and weighted F1 — so a single bad None score doesn't drown out otherwise-strong results on the real classes.">
-        <input type="checkbox" id="excludeNoneCheckbox">
-        Exclude "None" class
-      </label>
+      <button id="manageClassesBtn" class="btn btn-ghost" title="Merge classes with different names (e.g. Car + Truck → Vehicles, or Building roofs + Building facades + Roof structures → Building) into one for comparison.">⚙ Manage classes</button>
       <button id="addBtn" class="btn">+ Add tiles</button>
       <button id="sampleBtn" class="btn btn-ghost">Load sample data</button>
       <button id="clearBtn" class="btn btn-ghost">Clear all</button>
@@ -420,6 +465,22 @@ body.dragging .drag-overlay{display:flex;}
           <div id="modelsClassChart" class="chart-box"></div>
         </div>
 
+        <div class="card" id="modelsConfusionCard" style="display:none;">
+          <div class="card-title-row">
+            <h2 class="card-title">Confusion matrix — model total</h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <select id="modelsConfusionModelSelect" class="select select-small"></select>
+              <select id="modelsConfusionModeSelect" class="select select-small">
+                <option value="raw">Raw counts</option>
+                <option value="row">Row-normalized (recall)</option>
+                <option value="col">Column-normalized (precision)</option>
+              </select>
+            </div>
+          </div>
+          <p class="card-note" id="modelsConfusionNote"></p>
+          <div id="modelsConfusionChart" class="chart-box"></div>
+        </div>
+
         <div class="card">
           <div class="card-title-row">
             <h2 class="card-title">Compare one tile across models</h2>
@@ -459,6 +520,31 @@ body.dragging .drag-overlay{display:flex;}
 <div id="dragOverlay" class="drag-overlay">Drop tile report JSON files to add them</div>
 <div id="tooltip" class="tooltip"></div>
 
+<div id="classManagerOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 class="card-title">Manage classes</h2>
+      <button id="classManagerClose" class="icon-btn" title="Close">✕</button>
+    </div>
+    <p class="card-note">Group differently-named classes from different files into one (e.g. <span class="mono">Car</span> + <span class="mono">Truck</span> → <span class="mono">Vehicles</span>). A class already named exactly like the group's target name joins automatically — no duplicates. Changes apply everywhere: charts, tables, averages and the "common classes" filter.</p>
+
+    <div id="classManagerPresets"></div>
+
+    <h3 class="compare-subtitle">Raw classes found across loaded files</h3>
+    <div id="classManagerTable"></div>
+
+    <div class="class-group-create">
+      <input type="text" id="classGroupNameInput" class="select" placeholder="New group name, e.g. Vehicles">
+      <button id="classGroupCreateBtn" class="btn btn-small">Group selected →</button>
+      <span id="classGroupCreateHint" class="card-note" style="margin:0;"></span>
+    </div>
+
+    <h3 class="compare-subtitle" style="margin-top:20px;">Current groups</h3>
+    <div id="classManagerGroups"></div>
+  </div>
+</div>
+
+
 
 <script>
 (function(){
@@ -467,12 +553,18 @@ body.dragging .drag-overlay{display:flex;}
 /* ============================== State ============================== */
 const state = {
   tiles: new Map(),
-  classOrder: [],
+  classOrderAll: [],     // union of all (grouped) classes across every loaded tile
+  classOrderCommon: [],  // classes present in every loaded tile (grouped) — the default view
+  showAllClasses: false, // false = show only classes common to all tiles; true = show the union
+  classGroups: [],       // [{id, name, members:[lowercase raw class names]}] — user-defined aggregations
   modelOrder: [],
   modelFilter: null,
   excludeZeroSupport: true,
-  excludeNone: false,
-  aggregateBuilding: false,
+  confusionMode: 'raw',  // 'raw' | 'row' (recall-style) | 'col' (precision-style) — Tiles tab
+  modelsConfusionModel: null,
+  modelsConfusionMode: 'raw', // separate control for the Models-tab "model total" matrix
+  classManagerOpen: false,
+  classManagerSelected: new Set(), // lowercase raw class names checked in the "Manage classes" dialog
   currentTab: 'overview',
   sortKey: 'balanced_accuracy',
   sortDir: 'desc',
@@ -531,7 +623,7 @@ function iouFromPR(precision, recall){
 }
 
 // Mean IoU across all classes that are actually present in a tile (support > 0),
-// respecting the current excludeNone and excludeZeroSupport settings.
+// respecting the current class grouping and excludeZeroSupport settings.
 function tileMIoU(t){
   const classes = effectiveClassOrder();
   const ious = classes
@@ -579,7 +671,25 @@ function getMetricValue(row, key){
 /* ============================== Helpers ============================== */
 function mean(a){ return a.length ? a.reduce((s,v)=>s+v,0)/a.length : 0; }
 function std(a){ if(a.length<2) return 0; const m=mean(a); return Math.sqrt(mean(a.map(v=>(v-m)*(v-m)))); }
-function pct(v,d){ d = d==null?1:d; if (v==null||isNaN(v)) return '–'; return (v*100).toFixed(d)+'%'; }
+function pct(v,d){
+  d = d==null?1:d;
+  if (v==null||isNaN(v)) return '–';
+  const rounded = (v*100).toFixed(d);
+  // A value that's genuinely > 0 but rounds down to "0.0%" at this precision would
+  // otherwise be indistinguishable from a true zero (e.g. real support with a class that's
+  // almost never predicted correctly) — show it as "<0.1%" instead of hiding it.
+  if (v>0 && parseFloat(rounded)===0) return '<'+(1/Math.pow(10,d)).toFixed(d)+'%';
+  return rounded+'%';
+}
+// Same rounding rule as pct(), but returns a bare number (no "%") for chart/heatmap cell
+// labels that append their own unit or none at all.
+function pctNum(v,d){
+  d = d==null?0:d;
+  if (v==null||isNaN(v)) return '';
+  const rounded = (v*100).toFixed(d);
+  if (v>0 && parseFloat(rounded)===0) return '<'+(1/Math.pow(10,d)).toFixed(d);
+  return rounded;
+}
 function fmtBig(n){
   if (n==null||isNaN(n)) return '–';
   const abs=Math.abs(n);
@@ -621,14 +731,38 @@ function parseTile(obj, filename){
   }
   const rd = obj.report_dict;
   const classes = {};
+  const classKeyOrder = []; // preserves report_dict key order == confusion_matrix row/col order
+  // sklearn's classification_report(output_dict=True) can include several non-class summary
+  // rows alongside the per-class entries — not just "macro avg"/"weighted avg", but also
+  // "micro avg" (emitted whenever average != 'binary', e.g. because `labels=` was passed
+  // explicitly, which is exactly what generate_report() does) and "samples avg" (multilabel
+  // targets). Every one of these must be excluded here, or it gets mistaken for a class —
+  // which also silently breaks confusion-matrix parsing below, since that summary row
+  // inflates the expected class count past what sklearn's confusion_matrix() actually used.
+  const OTHER_SUMMARY_ROWS = new Set(['micro avg', 'samples avg']);
   let macro=null, weighted=null, accuracy=null;
   for (const [k,v] of Object.entries(rd)) {
     const kl = k.toLowerCase();
     if (kl === 'accuracy') { accuracy = v; continue; }
     if (kl === 'macro avg') { macro = v; continue; }
     if (kl === 'weighted avg') { weighted = v; continue; }
-    if (v && typeof v === 'object' && 'f1-score' in v) classes[k] = v;
+    if (OTHER_SUMMARY_ROWS.has(kl)) continue; // micro avg / samples avg — not a class
+    if (v && typeof v === 'object' && 'f1-score' in v) { classes[k] = v; classKeyOrder.push(k); }
   }
+
+  // Optional confusion matrix (added by generate_report()). Only trusted when its
+  // dimensions match the number of classes in report_dict, since row/col order is
+  // assumed to follow the same label order sklearn used to build both.
+  let confusionMatrix = null, confusionLabels = null;
+  if (Array.isArray(obj.confusion_matrix)) {
+    const cm = obj.confusion_matrix;
+    const n = classKeyOrder.length;
+    if (n>0 && cm.length===n && cm.every(row=>Array.isArray(row) && row.length===n)) {
+      confusionMatrix = cm;
+      confusionLabels = classKeyOrder.slice();
+    }
+  }
+
   const meta = parseFilenameMeta(filename);
   return {
     filename,
@@ -639,80 +773,126 @@ function parseTile(obj, filename){
     accuracy,
     classes,
     macro,
-    weighted
+    weighted,
+    confusionMatrix,
+    confusionLabels
   };
 }
 
-function isNoneClass(cls){ return String(cls).toLowerCase()==='none'; }
 
 function effectiveClassOrder(){
-  let classes = state.excludeNone
-    ? state.classOrder.filter(cls=>!isNoneClass(cls))
-    : state.classOrder;
-  if (!state.aggregateBuilding) return classes;
-  // Replace the three building sub-classes with a single BLDG_AGG_NAME entry
-  // at the position of the first sub-class found.
-  const result = [];
-  let inserted = false;
-  classes.forEach(cls => {
-    if (isBuildingSubclass(cls)) {
-      if (!inserted){ result.push(BLDG_AGG_NAME); inserted = true; }
-    } else {
-      result.push(cls);
-    }
-  });
-  return result;
+  return state.showAllClasses ? state.classOrderAll : state.classOrderCommon;
 }
 
-// Recomputes balanced accuracy / macro avg / weighted avg with the "None" class dropped
-// entirely from the calculation, so one bad None score can't pull down otherwise-strong
-// results on the real classes. Falls back to the tile's reported values when the
-// "Exclude None" option is off (or when a tile genuinely has no other classes).
-function tileEffectiveSummary(t){
-  if (!state.excludeNone) {
-    return { balanced_accuracy: t.balanced_accuracy, macro: t.macro, weighted: t.weighted };
-  }
-  // Use getTileClassesView so the aggregated Building class (if enabled) is included
-  // and building sub-classes are excluded from the summary computation.
-  const entries = Object.entries(getTileClassesView(t)).filter(([cls])=>!isNoneClass(cls));
-  if (!entries.length) return { balanced_accuracy: null, macro: null, weighted: null };
+// Cohen's kappa from an observed accuracy (po) and the true/predicted marginal totals
+// needed for the chance-agreement term: pe = Σ(true_total_c * predicted_total_c) / N².
+function kappaFromMarginals(po, sumTruePred, N){
+  if (N<=0) return null;
+  const pe = sumTruePred/(N*N);
+  if (pe>=1) return po>=1 ? 1 : 0;
+  return (po-pe)/(1-pe);
+}
 
-  // Balanced accuracy = mean recall over classes actually present (support > 0),
-  // mirroring sklearn's balanced_accuracy_score, which only averages over classes
-  // that appear in the ground truth.
+// The tile's accuracy / balanced accuracy / Cohen's kappa / macro & weighted averages,
+// recomputed under the CURRENT class grouping (state.classGroups) — this is what makes
+// grouping actually affect these numbers, instead of silently showing the tile's original
+// unrelated top-level JSON scalars once classes have been merged.
+//
+// Two computation paths:
+//  - EXACT, when the tile has a confusion_matrix: grouped classes are formed by merging
+//    matrix rows/cols, so a true positive correctly includes cases like "Building roofs"
+//    predicted as "Building facades" once both are merged into "Building".
+//  - APPROXIMATE otherwise: reconstructed from each (possibly merged) class's own
+//    precision/recall/support, same caveat as aggregateMetrics() — within-group confusions
+//    can't be told apart from real errors without a confusion matrix, so this slightly
+//    understates accuracy/balanced-accuracy/kappa for tiles with merged classes. With no
+//    grouping active this reduces to (and matches) the tile's own reported numbers.
+function tileEffectiveSummary(t){
+  const cmEff = buildEffectiveConfusion(t);
+  if (cmEff) return summaryFromConfusion(cmEff);
+  return summaryFromReportDict(t);
+}
+
+function summaryFromConfusion(eff){
+  const { labels, matrix } = eff;
+  const rowSums = matrix.map(row=>row.reduce((a,b)=>a+b,0));               // true-class totals
+  const colSums = labels.map((_,j)=>matrix.reduce((s,row)=>s+row[j],0));   // predicted-class totals
+  const N = rowSums.reduce((a,b)=>a+b,0);
+  if (N<=0) return { accuracy:null, balanced_accuracy:null, cohen_kappa:null, macro:null, weighted:null };
+
+  let TPsum=0, sumTruePred=0;
+  const perClass = labels.map((lab,i)=>{
+    const tp = matrix[i][i];
+    TPsum += tp;
+    sumTruePred += rowSums[i]*colSums[i];
+    const precision = colSums[i]>0 ? tp/colSums[i] : 0;
+    const recall = rowSums[i]>0 ? tp/rowSums[i] : 0;
+    const f1denom = precision+recall;
+    return { precision, recall, 'f1-score': f1denom>0 ? 2*precision*recall/f1denom : 0, support: rowSums[i] };
+  });
+
+  const accuracy = TPsum/N;
+  const present = perClass.filter(c=>c.support>0);
+  const balanced_accuracy = present.length ? mean(present.map(c=>c.recall)) : null;
+  const macro = {
+    precision: mean(perClass.map(c=>c.precision)),
+    recall: mean(perClass.map(c=>c.recall)),
+    'f1-score': mean(perClass.map(c=>c['f1-score'])),
+    support: N
+  };
+  const weighted = {
+    precision: perClass.reduce((s,c)=>s+c.precision*c.support,0)/N,
+    recall: accuracy,
+    'f1-score': perClass.reduce((s,c)=>s+c['f1-score']*c.support,0)/N,
+    support: N
+  };
+  const cohen_kappa = kappaFromMarginals(accuracy, sumTruePred, N);
+  return { accuracy, balanced_accuracy, cohen_kappa, macro, weighted };
+}
+
+function summaryFromReportDict(t){
+  const entries = Object.entries(getTileClassesView(t));
+  if (!entries.length) return { accuracy:null, balanced_accuracy:null, cohen_kappa:null, macro:null, weighted:null };
+
+  let totalSupport=0, totalTP=0, sumTruePred=0;
+  entries.forEach(([,m])=>{
+    const support = m.support||0;
+    if (support<=0) return;
+    const tp = m.recall*support;
+    const fp = m.precision>0 ? tp*(1-m.precision)/m.precision : 0;
+    totalSupport += support; totalTP += tp; sumTruePred += support*(tp+fp);
+  });
+  if (totalSupport<=0) return { accuracy:null, balanced_accuracy:null, cohen_kappa:null, macro:null, weighted:null };
+
+  const accuracy = totalTP/totalSupport;
   const present = entries.filter(([,m])=>m.support>0);
   const balanced_accuracy = present.length ? mean(present.map(([,m])=>m.recall)) : null;
-
-  // Macro avg = simple unweighted mean across the remaining classes.
   const macro = {
     precision: mean(entries.map(([,m])=>m.precision)),
     recall: mean(entries.map(([,m])=>m.recall)),
     'f1-score': mean(entries.map(([,m])=>m['f1-score'])),
-    support: entries.reduce((s,[,m])=>s+(m.support||0),0)
+    support: totalSupport
   };
-
-  // Weighted avg = support-weighted mean across the remaining classes.
-  const totalSupport = entries.reduce((s,[,m])=>s+(m.support||0),0);
-  let weighted = null;
-  if (totalSupport>0){
-    weighted = {
-      precision: entries.reduce((s,[,m])=>s+m.precision*(m.support||0),0)/totalSupport,
-      recall: entries.reduce((s,[,m])=>s+m.recall*(m.support||0),0)/totalSupport,
-      'f1-score': entries.reduce((s,[,m])=>s+m['f1-score']*(m.support||0),0)/totalSupport,
-      support: totalSupport
-    };
-  }
-  return { balanced_accuracy, macro, weighted };
+  const weighted = {
+    precision: entries.reduce((s,[,m])=>s+m.precision*(m.support||0),0)/totalSupport,
+    recall: entries.reduce((s,[,m])=>s+m.recall*(m.support||0),0)/totalSupport,
+    'f1-score': entries.reduce((s,[,m])=>s+m['f1-score']*(m.support||0),0)/totalSupport,
+    support: totalSupport
+  };
+  const cohen_kappa = kappaFromMarginals(accuracy, sumTruePred, totalSupport);
+  return { accuracy, balanced_accuracy, cohen_kappa, macro, weighted };
 }
 
 function tileMissingClasses(t){
-  // A class is "missing" in a tile when it has 0 (or no) ground-truth support there.
-  // sklearn still reports precision/recall/F1 = 0 for it, which drags macro averages
-  // down for a class that was never actually present in that tile — not a real failure.
-  return effectiveClassOrder().filter(cls=>{
-    const m = getClassM(t, cls);
-    return !m || !m.support || m.support<=0;
-  });
+  // A class only counts as "missing" here when it (or one of its group members) actually
+  // has a key in this tile's own report_dict but ends up with 0 total ground-truth support.
+  // A class that simply never appears in this tile's JSON (different taxonomy, or a file
+  // that doesn't distinguish that class) is NOT flagged — it's excluded from that tile's
+  // averages naturally, without being treated as a data-quality problem.
+  const view = getTileClassesView(t);
+  return Object.entries(view)
+    .filter(([,m])=> !(m && m.support>0))
+    .map(([cls])=>cls);
 }
 
 function qualityTiles(){
@@ -722,15 +902,21 @@ function qualityTiles(){
 }
 
 function recomputeOrders(){
-  const totals = {};
+  const totals = {};      // resolved (grouped) class name -> total support across all tiles
+  const presence = {};    // resolved (grouped) class name -> number of tiles that mention it at all
   const models = new Set();
+  const nTiles = state.tiles.size;
   for (const t of state.tiles.values()) {
     models.add(t.model);
-    for (const [cls, m] of Object.entries(t.classes)) {
+    const view = getTileClassesView(t);
+    for (const [cls, m] of Object.entries(view)) {
       totals[cls] = (totals[cls]||0) + (m.support||0);
+      presence[cls] = (presence[cls]||0) + 1;
     }
   }
-  state.classOrder = Object.keys(totals).sort((a,b)=>totals[b]-totals[a]);
+  const allClasses = Object.keys(totals).sort((a,b)=>totals[b]-totals[a]);
+  state.classOrderAll = allClasses;
+  state.classOrderCommon = allClasses.filter(cls=>presence[cls]===nTiles);
   state.modelOrder = [...models].sort();
   const effClasses = effectiveClassOrder();
   if (!state.selectedClass || !effClasses.includes(state.selectedClass)) {
@@ -739,6 +925,16 @@ function recomputeOrders(){
   if (state.modelFilter && !state.modelOrder.includes(state.modelFilter)) {
     state.modelFilter = null;
   }
+  updateShowAllClassesLabel();
+}
+
+function updateShowAllClassesLabel(){
+  const label = document.getElementById('showAllClassesLabel');
+  if (!label) return;
+  const hidden = Math.max(0, state.classOrderAll.length - state.classOrderCommon.length);
+  const textNode = label.childNodes[label.childNodes.length-1];
+  const text = hidden>0 ? `Show all classes (${hidden} hidden)` : 'Show all classes';
+  if (textNode && textNode.nodeType===3) textNode.textContent = ' '+text;
 }
 
 function filteredTiles(){
@@ -957,9 +1153,9 @@ function renderOverview(){
   setEmptyState('overviewEmpty','overviewContent', tiles.length===0, state.tiles.size>0);
   if (!tiles.length) return;
 
-  const accs = tiles.map(t=>t.accuracy).filter(v=>v!=null);
+  const accs = tiles.map(t=>tileEffectiveSummary(t).accuracy).filter(v=>v!=null);
   const bAccs = tiles.map(t=>tileEffectiveSummary(t).balanced_accuracy).filter(v=>v!=null);
-  const kappas = tiles.map(t=>t.cohen_kappa).filter(v=>v!=null);
+  const kappas = tiles.map(t=>tileEffectiveSummary(t).cohen_kappa).filter(v=>v!=null);
   const mious = tiles.map(t=>tileMIoU(t)).filter(v=>v!=null);
 
   document.getElementById('kpiTileCount').textContent = tiles.length;
@@ -1120,7 +1316,7 @@ function renderAccVsBalancedScatter(tiles){
   const innerW = width-margin.left-margin.right;
   const innerH = height-margin.top-margin.bottom;
   const pts = tiles
-    .map(t=>({tileId:t.tileId, model:t.model, accuracy:t.accuracy, cohen_kappa:t.cohen_kappa, balanced_accuracy: tileEffectiveSummary(t).balanced_accuracy}))
+    .map(t=>{ const eff = tileEffectiveSummary(t); return {tileId:t.tileId, model:t.model, accuracy:eff.accuracy, cohen_kappa:eff.cohen_kappa, balanced_accuracy:eff.balanced_accuracy}; })
     .filter(p=>p.accuracy!=null && p.balanced_accuracy!=null);
   if (!pts.length){ container.innerHTML = '<p class="chart-empty">No accuracy data found.</p>'; return; }
 
@@ -1196,7 +1392,7 @@ function renderHeatmap(tiles){
         ? `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)} — ${metricLabel} ${pct(val)} (shown)\nP ${pct(m.precision)} · R ${pct(m.recall)} · F1 ${pct(m['f1-score'])} · IoU ${pct(iouFromPR(m.precision,m.recall))} · n=${fmtBig(m.support)}`
         : `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)}: no data`;
       cells += `<rect x="${x+2}" y="${y+2}" width="${cellW-4}" height="${cellH-4}" rx="3" fill="${fill}" data-tip="${tip}"/>`;
-      if (val!=null) cells += `<text x="${x+cellW/2}" y="${(y+cellH/2+3.5).toFixed(1)}" text-anchor="middle" class="heatmap-cell-text">${Math.round(val*100)}</text>`;
+      if (val!=null) cells += `<text x="${x+cellW/2}" y="${(y+cellH/2+3.5).toFixed(1)}" text-anchor="middle" class="heatmap-cell-text">${pctNum(val,0)}</text>`;
     });
   });
 
@@ -1212,9 +1408,9 @@ function renderTilesTable(tiles){
     switch(key){
       case 'tileId': return t.tileId;
       case 'model': return t.model;
-      case 'accuracy': return t.accuracy==null?-1:t.accuracy;
+      case 'accuracy': return eff.accuracy==null?-1:eff.accuracy;
       case 'balanced_accuracy': return eff.balanced_accuracy==null?-1:eff.balanced_accuracy;
-      case 'cohen_kappa': return t.cohen_kappa==null?-1:t.cohen_kappa;
+      case 'cohen_kappa': return eff.cohen_kappa==null?-1:eff.cohen_kappa;
       case 'macro_f1': return eff.macro? eff.macro['f1-score'] : -1;
       case 'weighted_f1': return eff.weighted? eff.weighted['f1-score'] : -1;
       case 'miou': return tileMIoU(t) ?? -1;
@@ -1256,9 +1452,9 @@ function renderTilesTable(tiles){
     tbody += `<tr class="tile-row" data-filename="${esc(t.filename)}">
       <td class="mono" title="${esc(t.filename)}">${esc(t.tileId)} ${warnBadge}</td>
       <td><span class="model-chip" style="background:${mc}22;color:${mc};border:1px solid ${mc}66;">${esc(t.model)}</span></td>
-      <td class="mono">${pct(t.accuracy)}</td>
+      <td class="mono">${pct(eff.accuracy)}</td>
       <td class="mono">${pct(eff.balanced_accuracy)}</td>
-      <td class="mono">${t.cohen_kappa!=null?t.cohen_kappa.toFixed(3):'–'}</td>
+      <td class="mono">${eff.cohen_kappa!=null?eff.cohen_kappa.toFixed(3):'–'}</td>
       <td class="mono">${eff.macro?pct(eff.macro['f1-score']):'–'}</td>
       <td class="mono">${eff.weighted?pct(eff.weighted['f1-score']):'–'}</td>
       <td class="mono">${pct(tileMIoU(t))}</td>
@@ -1294,16 +1490,45 @@ function renderTilesTable(tiles){
       const detailRows = classRows.map(({cls,m})=>
         `<tr><td class="indent">${esc(cls)}</td><td class="mono">${pct(m.precision)}</td><td class="mono">${pct(m.recall)}</td><td class="mono">${pct(m['f1-score'])}</td><td class="mono">${pct(iouFromPR(m.precision,m.recall))}</td><td class="mono">${fmtBig(m.support)}</td></tr>`
       ).join('');
+
+      let cmBlock = '';
+      if (t.confusionMatrix){
+        const cmEff = buildEffectiveConfusion(t);
+        cmBlock = `<div class="cm-block">
+          <div class="cm-head">
+            <h3 class="compare-subtitle" style="margin:0;">Confusion matrix</h3>
+            <select class="select select-small cm-mode-select" data-filename="${esc(t.filename)}">
+              <option value="raw" ${state.confusionMode==='raw'?'selected':''}>Raw counts</option>
+              <option value="row" ${state.confusionMode==='row'?'selected':''}>Row-normalized (% of true class — recall)</option>
+              <option value="col" ${state.confusionMode==='col'?'selected':''}>Column-normalized (% of predicted class — precision)</option>
+            </select>
+          </div>
+          <div class="cm-render" data-cm-filename="${esc(t.filename)}"></div>
+        </div>`;
+      }
+
       tbody += `<tr class="detail-row"><td colspan="8">
         <table class="mini-table">
           <tr>${dHead}</tr>
           ${detailRows}
         </table>
+        ${cmBlock}
       </td></tr>`;
     }
   });
 
   container.innerHTML = `<table class="data-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+
+  // Confusion matrices are SVG built from live data, rendered after the table HTML is in
+  // the DOM (they need a real container node, and cm-scroll can be wide).
+  container.querySelectorAll('.cm-render').forEach(div=>{
+    const fn = div.getAttribute('data-cm-filename');
+    const t = state.tiles.get(fn);
+    if (!t) return;
+    const cmEff = buildEffectiveConfusion(t);
+    if (cmEff) renderConfusionMatrix(div, cmEff, state.confusionMode);
+    else div.innerHTML = '<p class="chart-empty">No confusion matrix data for the currently shown classes.</p>';
+  });
 }
 
 function tilesTableClickHandler(e){
@@ -1351,7 +1576,7 @@ function exportCSV(){
     const eff = tileEffectiveSummary(t);
     const row = [
       csvEsc(t.filename), csvEsc(t.tileId), csvEsc(t.model),
-      t.accuracy??'', eff.balanced_accuracy??'', t.cohen_kappa??'',
+      eff.accuracy??'', eff.balanced_accuracy??'', eff.cohen_kappa??'',
       eff.macro?eff.macro['f1-score']:'', eff.weighted?eff.weighted['f1-score']:'',
       tileMIoU(t)??'',
       ...classes.map(c=> { const m=getClassM(t,c); return m ? m['f1-score'] : ''; }),
@@ -1378,7 +1603,7 @@ function renderClassesTab(){
 
   const sel = document.getElementById('classSelect');
   const effClasses = effectiveClassOrder();
-  const sig = effClasses.join('|') + '::' + state.excludeNone;
+  const sig = effClasses.join('|');
   if (sel.dataset.populated !== sig){
     sel.innerHTML = effClasses.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
     sel.dataset.populated = sig;
@@ -1534,12 +1759,71 @@ function renderModelsTab(){
   renderModelsSummaryTable(tiles);
   renderModelsLegend();
   renderModelsClassChart(tiles, state.modelsChartMetric);
+  renderModelsConfusion();
   renderTileCompare();
 }
 
 function renderModelsLegend(){
   const el = document.getElementById('modelsLegend');
   el.innerHTML = state.modelOrder.map(m=>`<span class="legend-item"><i style="background:${modelColor(m)}"></i>${esc(m)}</span>`).join('');
+}
+
+// Sums every quality-passing tile's (grouped) confusion matrix for one model into a single
+// matrix aligned to `labels`. Tiles without a confusion_matrix simply don't contribute —
+// they're still counted in the Model summary table's accuracy/kappa (via report_dict
+// reconstruction there), just not representable as a matrix.
+function sumConfusionForModel(model, labels){
+  const gm = buildGroupMap();
+  const tiles = qualityTiles().filter(t=>t.model===model && t.confusionMatrix);
+  if (!tiles.length) return null;
+  const n = labels.length;
+  const mat = Array.from({length:n}, ()=>Array(n).fill(0));
+  let any = false;
+  tiles.forEach(t=>{
+    const resolved = t.confusionLabels.map(l=>{ const lo=l.toLowerCase(); return gm.has(lo)?gm.get(lo):l; });
+    resolved.forEach((ri,i)=>{
+      const li = labels.indexOf(ri);
+      if (li===-1) return;
+      resolved.forEach((rj,j)=>{
+        const lj = labels.indexOf(rj);
+        if (lj===-1) return;
+        mat[li][lj] += t.confusionMatrix[i][j];
+        any = true;
+      });
+    });
+  });
+  return any ? { labels, matrix: mat, tileCount: tiles.length } : null;
+}
+
+function renderModelsConfusion(){
+  const card = document.getElementById('modelsConfusionCard');
+  const models = state.modelOrder;
+  if (!models.length){ card.style.display='none'; return; }
+  card.style.display='block';
+
+  const sel = document.getElementById('modelsConfusionModelSelect');
+  const modeSel = document.getElementById('modelsConfusionModeSelect');
+  const container = document.getElementById('modelsConfusionChart');
+  const note = document.getElementById('modelsConfusionNote');
+
+  const sig = models.join('|');
+  if (sel.dataset.populated !== sig){
+    sel.innerHTML = models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    sel.dataset.populated = sig;
+  }
+  if (!state.modelsConfusionModel || !models.includes(state.modelsConfusionModel)) state.modelsConfusionModel = models[0];
+  sel.value = state.modelsConfusionModel;
+  modeSel.value = state.modelsConfusionMode;
+
+  const labels = effectiveClassOrder();
+  const summed = sumConfusionForModel(state.modelsConfusionModel, labels);
+  if (!summed){
+    container.innerHTML = '<p class="chart-empty">None of this model\'s tiles include a confusion_matrix — only files exported with one can be summed here.</p>';
+    note.textContent = '';
+    return;
+  }
+  note.textContent = `Summed across ${summed.tileCount} tile${summed.tileCount>1?'s':''} with a confusion matrix for ${state.modelsConfusionModel}.`;
+  renderConfusionMatrix(container, summed, state.modelsConfusionMode);
 }
 
 function renderModelsSummaryTable(tiles){
@@ -1549,10 +1833,10 @@ function renderModelsSummaryTable(tiles){
   tiles.forEach(t=>{
     if (!byModel[t.model]) byModel[t.model]={accuracy:[],balanced:[],kappa:[],miou:[],count:0};
     byModel[t.model].count++;
-    if (t.accuracy!=null) byModel[t.model].accuracy.push(t.accuracy);
-    const effBal = tileEffectiveSummary(t).balanced_accuracy;
-    if (effBal!=null) byModel[t.model].balanced.push(effBal);
-    if (t.cohen_kappa!=null) byModel[t.model].kappa.push(t.cohen_kappa);
+    const eff = tileEffectiveSummary(t);
+    if (eff.accuracy!=null) byModel[t.model].accuracy.push(eff.accuracy);
+    if (eff.balanced_accuracy!=null) byModel[t.model].balanced.push(eff.balanced_accuracy);
+    if (eff.cohen_kappa!=null) byModel[t.model].kappa.push(eff.cohen_kappa);
     const mIoU = tileMIoU(t);
     if (mIoU!=null) byModel[t.model].miou.push(mIoU);
   });
@@ -1710,25 +1994,25 @@ function renderTileCompareKpis(matches){
   const el = document.getElementById('tileCompareKpis');
   let html = matches.map(t=>{
     const mc = modelColor(t.model);
-    const bal = tileEffectiveSummary(t).balanced_accuracy;
+    const eff = tileEffectiveSummary(t);
     return `<div class="mini-card" style="border-color:${mc}66;">
       <div class="mini-card-label"><span class="model-chip" style="background:${mc}22;color:${mc};border:1px solid ${mc}66;">${esc(t.model)}</span></div>
-      <div class="mini-card-value" style="margin-top:6px;">${pct(t.accuracy)} <span class="mini-card-std">accuracy</span></div>
-      <div class="mini-card-value" style="font-size:14px;">${pct(bal)} <span class="mini-card-std">balanced</span></div>
-      <div class="mini-card-value" style="font-size:14px;">${t.cohen_kappa!=null?t.cohen_kappa.toFixed(3):'–'} <span class="mini-card-std">κ</span></div>
+      <div class="mini-card-value" style="margin-top:6px;">${pct(eff.accuracy)} <span class="mini-card-std">accuracy</span></div>
+      <div class="mini-card-value" style="font-size:14px;">${pct(eff.balanced_accuracy)} <span class="mini-card-std">balanced</span></div>
+      <div class="mini-card-value" style="font-size:14px;">${eff.cohen_kappa!=null?eff.cohen_kappa.toFixed(3):'–'} <span class="mini-card-std">κ</span></div>
     </div>`;
   }).join('');
 
   if (matches.length>=2){
     const baseline = matches[0];
-    const baselineBal = tileEffectiveSummary(baseline).balanced_accuracy;
+    const baselineEff = tileEffectiveSummary(baseline);
     const fmtPP = v => (v>=0?'+':'')+(v*100).toFixed(1)+' pp';
     const fmtRaw = v => (v>=0?'+':'')+v.toFixed(3);
     matches.slice(1).forEach(t=>{
-      const tBal = tileEffectiveSummary(t).balanced_accuracy;
-      const dAcc = (t.accuracy??0)-(baseline.accuracy??0);
-      const dBal = (tBal??0)-(baselineBal??0);
-      const dKappa = (t.cohen_kappa??0)-(baseline.cohen_kappa??0);
+      const tEff = tileEffectiveSummary(t);
+      const dAcc = (tEff.accuracy??0)-(baselineEff.accuracy??0);
+      const dBal = (tEff.balanced_accuracy??0)-(baselineEff.balanced_accuracy??0);
+      const dKappa = (tEff.cohen_kappa??0)-(baselineEff.cohen_kappa??0);
       html += `<div class="mini-card" style="border-color:var(--ink);border-style:dashed;">
         <div class="mini-card-label">Δ ${esc(t.model)} vs ${esc(baseline.model)}</div>
         <div class="mini-card-value" style="font-size:14px;margin-top:6px;">${fmtPP(dAcc)} <span class="mini-card-std">accuracy</span></div>
@@ -1800,63 +2084,403 @@ function renderTileCompareTable(matches){
   </table>`;
 }
 
-/* ============================== Building aggregation ============================== */
-// When state.aggregateBuilding is true, Building roofs + Building facades +
-// Roof structures are merged into a single "Building" class by summing their
-// confusion-matrix entries (TP, FP, FN), then re-deriving precision/recall/F1/IoU.
-// Classes missing from a tile are treated as support=0 and contribute nothing.
+/* ============================== Class grouping ============================== */
+// User-defined class groups let differently-named classes across files be treated as one
+// (e.g. Car + Truck -> Vehicles), and let a hand-built aggregate (e.g. Building roofs +
+// Building facades + Roof structures -> Building) merge seamlessly with files that already
+// report that combined class directly under the same name — a raw class exactly named like
+// the group's target is always folded in automatically, so there's never a duplicate.
+//
+// Metrics are combined by reconstructing TP/FP/FN from precision+recall+support, summing
+// them across the group's members, then re-deriving precision/recall/F1. A class with 0
+// support contributes nothing numerically but its presence still counts (see getClassM).
 
-const BLDG_SUB_KEYS = ['building roofs', 'building facades', 'roof structures']; // lowercase
-const BLDG_AGG_NAME = 'Building';
+function newGroupId(){ return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
-function isBuildingSubclass(cls){
-  return BLDG_SUB_KEYS.includes(String(cls).toLowerCase());
-}
-
-// Find the actual key in t.classes that matches a lowercase target
-function findClassKey(t, lowerKey){
-  return Object.keys(t.classes).find(k => k.toLowerCase() === lowerKey) || null;
-}
-
-// Aggregate metrics for the three building sub-classes of a tile.
-// Returns {precision, recall, 'f1-score', support} or null if none have support.
-function aggregateBuildingMetrics(t){
-  let totTP = 0, totFP = 0, totFN = 0, totSupport = 0;
-  BLDG_SUB_KEYS.forEach(lk => {
-    const key = findClassKey(t, lk);
-    const m = key ? t.classes[key] : null;
-    if (!m || !(m.support > 0)) return; // missing or 0-support — skip
-    const tp = m.recall * m.support;
-    const fp = m.precision > 0 ? tp * (1 - m.precision) / m.precision : 0;
-    const fn = m.support - tp;
-    totTP += tp; totFP += fp; totFN += fn; totSupport += m.support;
+// lowercase raw class name -> group's display (target) name, for every class touched by a group.
+function buildGroupMap(){
+  const map = new Map();
+  state.classGroups.forEach(g=>{
+    const target = g.name.trim();
+    if (!target) return;
+    const members = new Set(g.members.map(m=>String(m).toLowerCase()));
+    members.add(target.toLowerCase()); // a class already named exactly like the target joins automatically
+    members.forEach(m=>map.set(m, target));
   });
-  if (totSupport <= 0) return null;
+  return map;
+}
+
+function resolvedClassName(cls){
+  const gm = buildGroupMap();
+  const lower = String(cls).toLowerCase();
+  return gm.has(lower) ? gm.get(lower) : cls;
+}
+
+// Combine several raw per-class metric objects into one (TP/FP/FN summation).
+// Returns support:0 (not null) when nothing has positive support, so callers can still
+// tell "this class exists here but is empty" apart from "this class doesn't exist here".
+//
+// IMPORTANT CAVEAT — this is an approximation when no confusion matrix is available.
+// A per-class report only gives you that class's own precision/recall, so a ground-truth
+// "Building roofs" point that the model predicted as "Building facades" shows up as a false
+// negative for roofs and a false positive for facades. If roofs+facades are then grouped
+// into "Building", that point is actually a TRUE positive for the merged class (both sides
+// are "Building") — but summing TP/FP/FN from the per-class numbers alone can't see that,
+// because the report never says *which* other class an error was confused with. This
+// summation therefore still counts it as an error, which slightly UNDERSTATES the merged
+// class's real precision/recall/F1. See aggregateMetricsFromConfusion() for the exact
+// version, used automatically whenever a tile's JSON includes a confusion_matrix.
+function aggregateMetrics(list){
+  let totTP=0, totFP=0, totFN=0, totSupport=0;
+  list.forEach(m=>{
+    const support = m && m.support ? m.support : 0;
+    if (!m || support<=0) return;
+    const tp = m.recall * support;
+    const fp = m.precision > 0 ? tp * (1 - m.precision) / m.precision : 0;
+    totTP += tp; totFP += fp; totFN += (support - tp); totSupport += support;
+  });
+  if (totSupport<=0) return { precision:0, recall:0, 'f1-score':0, support:0, _approx:true };
   const precision = totTP > 0 ? totTP / (totTP + totFP) : 0;
   const recall    = totTP > 0 ? totTP / totSupport : 0;
   const f1denom   = precision + recall;
   const f1        = f1denom > 0 ? 2 * precision * recall / f1denom : 0;
-  return { precision, recall, 'f1-score': f1, support: totSupport };
+  return { precision, recall, 'f1-score': f1, support: totSupport, _approx:true };
 }
 
-// Get class metrics for a tile, handling the aggregated Building class and
-// gracefully returning null when a class is absent from the tile's JSON.
-function getClassM(t, cls){
-  if (state.aggregateBuilding && cls === BLDG_AGG_NAME) return aggregateBuildingMetrics(t);
-  return t.classes[cls] || null;
-}
-
-// Return a classes-like object with aggregation applied (for detail tables that
-// iterate over all classes with Object.entries).
-function getTileClassesView(t){
-  if (!state.aggregateBuilding) return t.classes;
-  const result = {};
-  Object.entries(t.classes).forEach(([cls, m]) => {
-    if (!isBuildingSubclass(cls)) result[cls] = m;
+// Exact merged metrics for a group of raw class keys within one tile's confusion matrix.
+// Any cell where BOTH the true and predicted label fall inside the group counts as a true
+// positive for the merged class — this is what makes it exact where aggregateMetrics()
+// above can only approximate: it correctly treats within-group confusions (e.g. "Building
+// roofs" predicted as "Building facades") as correct once those classes are merged.
+// Returns null if the tile has no usable confusion matrix or none of rawKeys are in it.
+function aggregateMetricsFromConfusion(t, rawKeys){
+  if (!t.confusionMatrix || !t.confusionLabels) return null;
+  const idxSet = new Set();
+  rawKeys.forEach(k=>{
+    const idx = t.confusionLabels.findIndex(l=>l.toLowerCase()===String(k).toLowerCase());
+    if (idx!==-1) idxSet.add(idx);
   });
-  const agg = aggregateBuildingMetrics(t);
-  if (agg) result[BLDG_AGG_NAME] = agg;
+  if (!idxSet.size) return null;
+  const n = t.confusionLabels.length;
+  let TP=0, FN=0, FP=0;
+  for (let i=0;i<n;i++){
+    for (let j=0;j<n;j++){
+      const v = t.confusionMatrix[i][j] || 0;
+      const iIn = idxSet.has(i), jIn = idxSet.has(j);
+      if (iIn && jIn) TP += v;
+      else if (iIn) FN += v;
+      else if (jIn) FP += v;
+    }
+  }
+  const support = TP + FN;
+  if (support<=0) return { precision:0, recall:0, 'f1-score':0, support:0, _approx:false };
+  const precision = (TP+FP) > 0 ? TP/(TP+FP) : 0;
+  const recall = TP/support;
+  const f1denom = precision+recall;
+  const f1 = f1denom > 0 ? 2*precision*recall/f1denom : 0;
+  return { precision, recall, 'f1-score': f1, support, _approx:false };
+}
+
+// Raw [key, metrics] entries in tile t whose resolved (grouped) name equals targetName.
+function rawEntriesForTarget(t, targetName){
+  const gm = buildGroupMap();
+  const targetLower = String(targetName).toLowerCase();
+  return Object.entries(t.classes).filter(([cls])=>{
+    const lower = cls.toLowerCase();
+    const mapped = gm.has(lower) ? gm.get(lower).toLowerCase() : lower;
+    return mapped === targetLower;
+  });
+}
+
+// Combine raw entries into one metrics object, preferring the exact confusion-matrix
+// derivation when the tile has one and this is a genuine multi-class merge.
+function combineRawEntries(t, rawEntries){
+  if (rawEntries.length===1) return rawEntries[0][1];
+  if (t.confusionMatrix){
+    const exact = aggregateMetricsFromConfusion(t, rawEntries.map(([k])=>k));
+    if (exact) return exact;
+  }
+  return aggregateMetrics(rawEntries.map(([,m])=>m));
+}
+
+// Get class metrics for a tile under its resolved (post-grouping) name. Returns null only
+// when the tile has no raw class at all that maps to this name (i.e. the class genuinely
+// isn't part of this tile's taxonomy) — never for a class that exists with 0 support.
+function getClassM(t, targetName){
+  const raws = rawEntriesForTarget(t, targetName);
+  if (!raws.length) return null;
+  return combineRawEntries(t, raws);
+}
+
+// A classes-like object for tile t, keyed by resolved (grouped) display names, for detail
+// tables that iterate over everything the tile actually reports.
+function getTileClassesView(t){
+  const gm = buildGroupMap();
+  const buckets = new Map(); // lowercase target -> {display, entries:[[key,m],...]}
+  Object.entries(t.classes).forEach(([cls,m])=>{
+    const lower = cls.toLowerCase();
+    const display = gm.has(lower) ? gm.get(lower) : cls;
+    const key = display.toLowerCase();
+    if (!buckets.has(key)) buckets.set(key, {display, entries:[]});
+    buckets.get(key).entries.push([cls,m]);
+  });
+  const result = {};
+  buckets.forEach(({display,entries})=>{
+    result[display] = combineRawEntries(t, entries);
+  });
   return result;
+}
+
+// Raw class names (ungrouped) seen across every loaded tile, with per-name stats — used to
+// populate the "Manage classes" dialog.
+function getRawClassInfo(){
+  const info = new Map(); // lowercase -> {display, tileCount, totalSupport}
+  for (const t of state.tiles.values()) {
+    Object.entries(t.classes).forEach(([cls,m])=>{
+      const lower = cls.toLowerCase();
+      if (!info.has(lower)) info.set(lower, {lower, display:cls, tileCount:0, totalSupport:0});
+      const rec = info.get(lower);
+      rec.tileCount++;
+      rec.totalSupport += (m.support||0);
+    });
+  }
+  return [...info.values()].sort((a,b)=> b.totalSupport-a.totalSupport);
+}
+
+function groupForRawClass(lower){
+  return state.classGroups.find(g=> g.name.trim().toLowerCase()===lower || g.members.includes(lower)) || null;
+}
+
+function createOrExtendGroup(name, memberLowers){
+  name = (name||'').trim();
+  memberLowers = memberLowers.filter(Boolean);
+  if (!name || !memberLowers.length) return false;
+  // A raw class can only belong to one group at a time — pull it out of any other group first.
+  state.classGroups.forEach(g=>{ g.members = g.members.filter(m=>!memberLowers.includes(m)); });
+  state.classGroups = state.classGroups.filter(g=>g.members.length>0);
+  let g = state.classGroups.find(g=>g.name.toLowerCase()===name.toLowerCase());
+  if (!g){ g = {id:newGroupId(), name, members:[]}; state.classGroups.push(g); }
+  memberLowers.forEach(m=>{ if (m!==name.toLowerCase() && !g.members.includes(m)) g.members.push(m); });
+  return true;
+}
+
+function removeMemberFromGroup(groupId, memberLower){
+  const g = state.classGroups.find(x=>x.id===groupId);
+  if (!g) return;
+  g.members = g.members.filter(m=>m!==memberLower);
+  if (!g.members.length) state.classGroups = state.classGroups.filter(x=>x.id!==groupId);
+}
+
+// Adds an existing raw class to an existing group, looked up by its id (not its display
+// name — the "+ add class…" dropdown in the manager needs this, since createOrExtendGroup
+// takes a *name* and would otherwise create a brand-new group named after the group's id).
+function addMemberToGroupById(groupId, memberLower){
+  const g = state.classGroups.find(x=>x.id===groupId);
+  if (!g || !memberLower) return;
+  state.classGroups.forEach(x=>{ if (x!==g) x.members = x.members.filter(m=>m!==memberLower); });
+  state.classGroups = state.classGroups.filter(x=>x===g || x.members.length>0);
+  if (memberLower!==g.name.toLowerCase() && !g.members.includes(memberLower)) g.members.push(memberLower);
+}
+
+function deleteGroup(groupId){
+  state.classGroups = state.classGroups.filter(g=>g.id!==groupId);
+}
+
+function renameGroup(groupId, newName){
+  const g = state.classGroups.find(x=>x.id===groupId);
+  newName = (newName||'').trim();
+  if (!g || !newName) return;
+  g.name = newName;
+}
+
+function classGroupsChanged(){
+  recomputeOrders();
+  renderQualityBanner();
+  renderClassManager();
+  rerenderCurrent();
+}
+
+/* ---------- Class manager dialog ---------- */
+const CLASS_GROUP_PRESETS = [
+  { name:'Building', members:['building roofs','building facades','roof structures'] }
+];
+
+function openClassManager(){
+  state.classManagerOpen = true;
+  state.classManagerSelected = new Set();
+  document.getElementById('classManagerOverlay').style.display = 'flex';
+  renderClassManager();
+}
+function closeClassManager(){
+  state.classManagerOpen = false;
+  document.getElementById('classManagerOverlay').style.display = 'none';
+}
+
+function updateClassGroupCreateHint(warn){
+  const hint = document.getElementById('classGroupCreateHint');
+  const n = state.classManagerSelected.size;
+  if (warn) hint.textContent = 'Pick at least one class and give the group a name.';
+  else hint.textContent = n ? `${n} class${n>1?'es':''} selected` : 'Select classes below, then name the group.';
+}
+
+function renderClassManagerPresets(){
+  const el = document.getElementById('classManagerPresets');
+  if (!state.tiles.size){ el.innerHTML=''; return; }
+  const raw = getRawClassInfo();
+  const rawLowers = new Set(raw.map(r=>r.lower));
+  const html = CLASS_GROUP_PRESETS
+    .filter(p=>{
+      const g = state.classGroups.find(g=>g.name.toLowerCase()===p.name.toLowerCase());
+      const alreadyDone = g && p.members.every(m=>g.members.includes(m) || m===g.name.toLowerCase());
+      const applicable = p.members.some(m=>rawLowers.has(m));
+      return applicable && !alreadyDone;
+    })
+    .map(p=>`<button type="button" class="btn btn-ghost btn-small" data-preset='${esc(JSON.stringify(p))}'>+ Preset: ${esc(p.name)} (${p.members.length} sub-classes)</button>`)
+    .join('');
+  el.innerHTML = html ? `<div class="preset-row">${html}</div>` : '';
+}
+
+function renderClassManagerTable(){
+  const el = document.getElementById('classManagerTable');
+  const raw = getRawClassInfo();
+  if (!raw.length){ el.innerHTML = '<p class="empty-note">No tiles loaded yet — add some JSON files first.</p>'; return; }
+  const nTiles = state.tiles.size;
+  const rows = raw.map(r=>{
+    const g = groupForRawClass(r.lower);
+    const checked = state.classManagerSelected.has(r.lower) ? 'checked' : '';
+    const groupChip = g ? `<span class="class-chip" style="background:${classColor(g.name)}22;color:${classColor(g.name)};">${esc(g.name)}</span>` : '<span style="color:var(--ink-soft);">—</span>';
+    return `<tr class="${g?'in-group':''}">
+      <td><input type="checkbox" data-raw="${esc(r.lower)}" ${checked}></td>
+      <td class="mono">${esc(r.display)}</td>
+      <td class="mono">${r.tileCount}/${nTiles}</td>
+      <td class="mono">${fmtBig(r.totalSupport)}</td>
+      <td>${groupChip}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table class="class-mgr-table">
+    <thead><tr><th></th><th>Class (as found in JSON)</th><th>In tiles</th><th>Total support</th><th>Group</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderClassManagerGroups(){
+  const el = document.getElementById('classManagerGroups');
+  if (!state.classGroups.length){ el.innerHTML = '<p class="empty-note">No groups yet. Select classes above and name a group to merge them.</p>'; return; }
+  const raw = getRawClassInfo();
+  el.innerHTML = state.classGroups.map(g=>{
+    const memberChips = g.members.map(m=>{
+      const info = raw.find(r=>r.lower===m);
+      const label = info ? info.display : m;
+      return `<span class="member-chip">${esc(label)}<button type="button" data-group="${esc(g.id)}" data-remove-member="${esc(m)}" title="Remove">✕</button></span>`;
+    }).join('');
+    const inThisOrOtherGroup = new Set(g.members.concat([g.name.toLowerCase()]));
+    const addable = raw.filter(r=> !groupForRawClass(r.lower) && !inThisOrOtherGroup.has(r.lower));
+    const addOptions = addable.map(r=>`<option value="${esc(r.lower)}">${esc(r.display)}</option>`).join('');
+    return `<div class="group-card">
+      <div class="group-card-head">
+        <input type="text" class="group-name-input" data-rename-group="${esc(g.id)}" value="${esc(g.name)}">
+        ${addable.length ? `<select class="select select-small" data-add-to-group="${esc(g.id)}"><option value="">+ add class…</option>${addOptions}</select>` : ''}
+        <button type="button" class="icon-btn" data-delete-group="${esc(g.id)}" title="Delete group">🗑</button>
+      </div>
+      <div>${memberChips || '<span class="empty-note">No members — will be removed.</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderClassManager(){
+  if (!state.classManagerOpen) return;
+  renderClassManagerPresets();
+  renderClassManagerTable();
+  renderClassManagerGroups();
+  updateClassGroupCreateHint();
+}
+
+/* ============================== Confusion matrix ============================== */
+// Merges a tile's raw confusion matrix rows/cols according to the current class groups,
+// ordering labels to match effectiveClassOrder() where possible so it lines up with the
+// rest of the dashboard. This is also the exact source of truth tileEffectiveSummary()
+// uses for accuracy/balanced-accuracy/kappa whenever a tile has a confusion matrix.
+function buildEffectiveConfusion(t){
+  if (!t.confusionMatrix || !t.confusionLabels) return null;
+  const gm = buildGroupMap();
+  const rawLabels = t.confusionLabels;
+  const resolved = rawLabels.map(l=>{
+    const lower = l.toLowerCase();
+    return gm.has(lower) ? gm.get(lower) : l;
+  });
+  let keepIdx = resolved.map((_,i)=>i);
+  if (!keepIdx.length) return null;
+
+  const targets = [];
+  keepIdx.forEach(i=>{ if (!targets.includes(resolved[i])) targets.push(resolved[i]); });
+  const eff = effectiveClassOrder();
+  targets.sort((a,b)=>{
+    const ia = eff.indexOf(a), ib = eff.indexOf(b);
+    if (ia===-1 && ib===-1) return a.localeCompare(b);
+    if (ia===-1) return 1;
+    if (ib===-1) return -1;
+    return ia-ib;
+  });
+
+  const n = targets.length;
+  const mat = Array.from({length:n}, ()=>Array(n).fill(0));
+  keepIdx.forEach(i=>{
+    const ri = targets.indexOf(resolved[i]);
+    keepIdx.forEach(j=>{
+      const cj = targets.indexOf(resolved[j]);
+      mat[ri][cj] += t.confusionMatrix[i][j];
+    });
+  });
+  return { labels: targets, matrix: mat };
+}
+
+function countColor(t){
+  t = clamp01(t);
+  const lo=[249,249,242], hi=[59,110,143];
+  const rgb = lo.map((c,i)=>Math.round(c + (hi[i]-c)*t));
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
+function renderConfusionMatrix(container, eff, mode){
+  const { labels, matrix } = eff;
+  const n = labels.length;
+  if (!n){ container.innerHTML = '<p class="chart-empty">No confusion matrix data.</p>'; return; }
+
+  const rowSums = matrix.map(row=>row.reduce((a,b)=>a+b,0));
+  const colSums = labels.map((_,j)=>matrix.reduce((s,row)=>s+row[j],0));
+  const maxVal = Math.max(1, ...matrix.flat());
+
+  const cellW = 66, cellH = 30, labelW = 150, headerH = 96;
+  const width = labelW + n*cellW + 10;
+  const height = headerH + n*cellH + 10;
+
+  let header = `<text x="${labelW-6}" y="${headerH-cellH-14}" text-anchor="end" class="axis-text" font-style="italic">predicted →</text>`;
+  labels.forEach((lab,j)=>{
+    const x = labelW + j*cellW + cellW/2;
+    header += `<text x="${x}" y="${headerH-10}" text-anchor="start" class="heatmap-col-label" transform="rotate(-40 ${x} ${headerH-10})">${esc(lab)}</text>`;
+  });
+
+  let cells = '';
+  labels.forEach((rowLab,i)=>{
+    const y = headerH + i*cellH;
+    cells += `<text x="${labelW-10}" y="${(y+cellH/2+4).toFixed(1)}" text-anchor="end" class="heatmap-row-label">${esc(rowLab)}</text>`;
+    labels.forEach((colLab,j)=>{
+      const x = labelW + j*cellW;
+      const raw = matrix[i][j];
+      let t, text;
+      if (mode==='row'){ t = rowSums[i]>0 ? raw/rowSums[i] : 0; text = raw>0 || rowSums[i]>0 ? pct(t,0) : '–'; }
+      else if (mode==='col'){ t = colSums[j]>0 ? raw/colSums[j] : 0; text = raw>0 || colSums[j]>0 ? pct(t,0) : '–'; }
+      else { t = raw/maxVal; text = fmtBig(raw); }
+      const fill = countColor(t);
+      const diag = i===j;
+      const tip = `true: ${esc(rowLab)}\npredicted: ${esc(colLab)}\ncount: ${fmtBig(raw)}\nrow % (recall-style): ${rowSums[i]>0?pct(raw/rowSums[i],1):'–'}\ncol % (precision-style): ${colSums[j]>0?pct(raw/colSums[j],1):'–'}`;
+      cells += `<rect x="${x+2}" y="${y+2}" width="${cellW-4}" height="${cellH-4}" rx="3" fill="${fill}"
+        ${diag?'stroke="var(--ink)" stroke-width="1.4"':''} data-tip="${tip}"/>`;
+      cells += `<text x="${x+cellW/2}" y="${(y+cellH/2+3.5).toFixed(1)}" text-anchor="middle" class="heatmap-cell-text" fill="${t>0.55?'#F4F2E8':'rgba(0,0,0,.65)'}">${text}</text>`;
+    });
+  });
+
+  container.innerHTML = `<div class="cm-scroll"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${header}${cells}</svg></div>`;
 }
 
 
@@ -1883,8 +2507,8 @@ function init(){
   document.getElementById('clearBtn').addEventListener('click', ()=>{
     state.tiles.clear(); state.expandedTiles.clear(); state.errors=[]; state.selectedClass=null; state.modelFilter=null;
     state.excludeZeroSupport=true; document.getElementById('excludeZeroSupportCheckbox').checked=true;
-    state.excludeNone=false; document.getElementById('excludeNoneCheckbox').checked=false;
-    state.aggregateBuilding=false; document.getElementById('aggregateBuildingCheckbox').checked=false;
+    state.showAllClasses=false; document.getElementById('showAllClassesCheckbox').checked=false;
+    state.classGroups=[]; state.classManagerSelected=new Set();
     onDataChanged();
   });
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
@@ -1906,18 +2530,55 @@ function init(){
     rerenderCurrent();
   });
 
-  document.getElementById('excludeNoneCheckbox').addEventListener('change', e=>{
-    state.excludeNone = e.target.checked;
-    recomputeOrders();
-    renderQualityBanner();
+  document.getElementById('showAllClassesCheckbox').addEventListener('change', e=>{
+    state.showAllClasses = e.target.checked;
     rerenderCurrent();
   });
 
-  document.getElementById('aggregateBuildingCheckbox').addEventListener('change', e=>{
-    state.aggregateBuilding = e.target.checked;
-    // Recompute class order context (effectiveClassOrder changes)
-    recomputeOrders();
-    rerenderCurrent();
+  document.getElementById('manageClassesBtn').addEventListener('click', openClassManager);
+  document.getElementById('classManagerClose').addEventListener('click', closeClassManager);
+  document.getElementById('classManagerOverlay').addEventListener('click', e=>{
+    if (e.target.id==='classManagerOverlay') closeClassManager();
+  });
+  document.getElementById('classManagerTable').addEventListener('change', e=>{
+    const cb = e.target.closest('input[type=checkbox][data-raw]');
+    if (!cb) return;
+    const lower = cb.getAttribute('data-raw');
+    if (cb.checked) state.classManagerSelected.add(lower); else state.classManagerSelected.delete(lower);
+    updateClassGroupCreateHint();
+  });
+  document.getElementById('classGroupCreateBtn').addEventListener('click', ()=>{
+    const nameInput = document.getElementById('classGroupNameInput');
+    const ok = createOrExtendGroup(nameInput.value, [...state.classManagerSelected]);
+    if (ok){
+      nameInput.value = '';
+      state.classManagerSelected = new Set();
+      classGroupsChanged();
+    } else {
+      updateClassGroupCreateHint(true);
+    }
+  });
+  document.getElementById('classGroupNameInput').addEventListener('keydown', e=>{
+    if (e.key==='Enter') document.getElementById('classGroupCreateBtn').click();
+  });
+  document.getElementById('classManagerPresets').addEventListener('click', e=>{
+    const btn = e.target.closest('button[data-preset]');
+    if (!btn) return;
+    const spec = JSON.parse(btn.getAttribute('data-preset'));
+    const found = getRawClassInfo().map(r=>r.lower).filter(l=>spec.members.includes(l));
+    if (found.length) { createOrExtendGroup(spec.name, found); classGroupsChanged(); }
+  });
+  document.getElementById('classManagerGroups').addEventListener('click', e=>{
+    const rm = e.target.closest('button[data-remove-member]');
+    if (rm){ removeMemberFromGroup(rm.getAttribute('data-group'), rm.getAttribute('data-remove-member')); classGroupsChanged(); return; }
+    const del = e.target.closest('button[data-delete-group]');
+    if (del){ deleteGroup(del.getAttribute('data-delete-group')); classGroupsChanged(); return; }
+  });
+  document.getElementById('classManagerGroups').addEventListener('change', e=>{
+    const nameInput = e.target.closest('input[data-rename-group]');
+    if (nameInput){ renameGroup(nameInput.getAttribute('data-rename-group'), nameInput.value); classGroupsChanged(); return; }
+    const addSel = e.target.closest('select[data-add-to-group]');
+    if (addSel && addSel.value){ addMemberToGroupById(addSel.getAttribute('data-add-to-group'), addSel.value); classGroupsChanged(); }
   });
 
   document.getElementById('classSelect').addEventListener('change', (e)=>{
@@ -1943,6 +2604,15 @@ function init(){
     renderModelsClassChart(qualityTiles(), state.modelsChartMetric);
   });
 
+  document.getElementById('modelsConfusionModelSelect').addEventListener('change', e=>{
+    state.modelsConfusionModel = e.target.value;
+    renderModelsConfusion();
+  });
+  document.getElementById('modelsConfusionModeSelect').addEventListener('change', e=>{
+    state.modelsConfusionMode = e.target.value;
+    renderModelsConfusion();
+  });
+
   document.getElementById('tileCompareSelect').addEventListener('change', e=>{
     state.tileCompare = e.target.value;
     renderTileCompare();
@@ -1964,6 +2634,12 @@ function init(){
   });
 
   document.getElementById('tilesTable').addEventListener('click', tilesTableClickHandler);
+  document.getElementById('tilesTable').addEventListener('change', e=>{
+    const sel = e.target.closest('.cm-mode-select');
+    if (!sel) return;
+    state.confusionMode = sel.value;
+    renderTilesTable(filteredTiles());
+  });
 
   document.addEventListener('mousemove', tooltipHandler);
 
