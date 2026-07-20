@@ -715,13 +715,26 @@ function scoreColor(v){
 /* ============================== Parsing ============================== */
 function parseFilenameMeta(filename){
   const base = filename.replace(/\.json$/i, '');
-  const us = base.lastIndexOf('_');
+  // Tile ids are two numbers joined by "_" (e.g. "2567000_1206500"), optionally still
+  // carrying the original point-cloud extension (e.g. "2527500_1191000.copc.laz"),
+  // followed by "_" and the model name. Match that shape explicitly so a model name
+  // containing underscores (e.g. "minkunet_v1") isn't mistaken for part of the tile id —
+  // unlike a naive "split on the last underscore", which would cut "minkunet_v1" into
+  // tile-suffix "minkunet" + model "v1".
+  const TILE_RE = /^(\d+_\d+)(?:\.copc\.laz|\.laz|\.las)?_(.+)$/i;
+  const m = base.match(TILE_RE);
   let tileId, model;
-  if (us === -1 || us === base.length-1) { tileId = base; model = 'default'; }
-  else { tileId = base.slice(0,us); model = base.slice(us+1); }
-  // The tile id is often the original point-cloud filename (e.g. "2527500_1191000.copc.laz") —
-  // strip that extension so the displayed tile name is just "2527500_1191000".
-  tileId = tileId.replace(/\.copc\.laz$/i, '').replace(/\.(laz|las)$/i, '');
+  if (m) {
+    tileId = m[1];
+    model = m[2];
+  } else {
+    // Fallback for filenames that don't fit the numeric tile-id shape: last underscore split.
+    const us = base.lastIndexOf('_');
+    if (us === -1 || us === base.length-1) { tileId = base; model = 'default'; }
+    else { tileId = base.slice(0,us); model = base.slice(us+1); }
+    // Strip a lingering point-cloud extension so the displayed tile name is just the id.
+    tileId = tileId.replace(/\.copc\.laz$/i, '').replace(/\.(laz|las)$/i, '');
+  }
   return { tileId, model };
 }
 

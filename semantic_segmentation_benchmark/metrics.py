@@ -56,26 +56,78 @@ class Benchmark:
         elif default is not None:
             return np.vectorize(lambda x: mapping.get(x, default))(labels)
         else:
-            return np.vectorize(mapping.get)(labels)
+            return np.vectorize(lambda x: mapping.get(x, 0))(labels)
 
     @staticmethod
     def get_classification_matching_indices(pc_predictions: laspy.LasData, pc_ground_truth: laspy.LasData, precision: float = 3.0) -> tuple[np.ndarray, np.ndarray]:
-        coords_pred = np.round(pc_predictions.xyz, int(precision))
-        coords_gt = np.round(pc_ground_truth.xyz, int(precision))
+        
+        scale = 10 ** int(precision)
 
-        dtype = np.dtype([("x", coords_pred.dtype), ("y", coords_pred.dtype), ("z", coords_pred.dtype)])
+        pred_xyz = np.asarray(pc_predictions.xyz)
+        gt_xyz = np.asarray(pc_ground_truth.xyz)
 
-        pred_struct = np.ascontiguousarray(coords_pred).view(dtype).ravel()
-        gt_struct = np.ascontiguousarray(coords_gt).view(dtype).ravel()
+        pred_i = np.round(pred_xyz * scale).astype(np.int64)
+        gt_i = np.round(gt_xyz * scale).astype(np.int64)
 
-        order = np.argsort(pred_struct)
-        change_indices = order[np.searchsorted(pred_struct[order], gt_struct)]
+        mins = np.minimum(pred_i.min(axis=0), gt_i.min(axis=0))
+        pred_i -= mins
+        gt_i -= mins
 
-        ground_truth = pc_ground_truth.classification
-        predictions = pc_predictions.classification[change_indices]
+        maxs = np.maximum(pred_i.max(axis=0), gt_i.max(axis=0))
+        bits = np.maximum(np.ceil(np.log2(maxs.astype(np.float64) + 1)).astype(np.int64), 1)
+
+        if bits.sum() > 63:
+            raise ValueError(
+                f"Coordinate range needs {int(bits.sum())} bits at precision={precision}, "
+                f"which doesn't fit in a uint64 key. Lower matching_precision or use "
+                f"KDTree matching."
+            )
+
+        shift_y = int(bits[2])
+        shift_x = shift_y + int(bits[1])
+
+        def pack(xyz_i: np.ndarray) -> np.ndarray:
+            x = xyz_i[:, 0].view(np.uint64)
+            y = xyz_i[:, 1].view(np.uint64)
+            z = xyz_i[:, 2].view(np.uint64)
+            keys = x << np.uint64(shift_x)
+            keys |= y << np.uint64(shift_y)
+            keys |= z
+            return keys
+
+        pred_keys = pack(pred_i)
+        gt_keys = pack(gt_i)
+        del pred_i, gt_i
+
+        sorter = np.argsort(pred_keys)
+        pred_sorted = pred_keys[sorter]
+        del pred_keys
+
+        gt_order = np.argsort(gt_keys)
+        gt_sorted = gt_keys[gt_order]
+
+        pos_sorted = np.searchsorted(pred_sorted, gt_sorted)
+        np.clip(pos_sorted, 0, len(pred_sorted) - 1, out=pos_sorted)
+
+        matched_sorted = pred_sorted[pos_sorted] == gt_sorted
+
+        pos = np.empty_like(pos_sorted)
+        pos[gt_order] = pos_sorted
+        valid = np.empty_like(matched_sorted)
+        valid[gt_order] = matched_sorted
+
+        matched_pred_idx = sorter[pos[valid]]
+        matched_gt_idx = np.nonzero(valid)[0]
+
+        n_unmatched = len(gt_keys) - int(valid.sum())
+        if n_unmatched:
+            print(f"[get_classification_matching_indices] {n_unmatched}/{len(gt_keys)} "
+                f"ground truth points had no exact match in predictions at precision={precision}.")
+
+        predictions = pc_predictions.classification[matched_pred_idx]
+        ground_truth = pc_ground_truth.classification[matched_gt_idx]
 
         return predictions, ground_truth
-    
 
     @staticmethod
     def get_pred_gt(pc_predictions: laspy.LasData, pc_ground_truth: laspy.LasData, remap_predictions: dict | None = None, remap_ground_truth: dict | None = None, matching_precision: float = 3.0, use_kdtree_matching: bool = False) -> tuple[np.ndarray, np.ndarray]:

@@ -75,11 +75,5 @@ SITN_MINKUNET = {
 }
 
 SITN_FIRST_ITERATION_DL_REMAP = {
-    "default": 0,
-    1:  2,
-    12: 26,
-    10: 22,
-    9:  21,
-    4:  6,
-    3:  3
+    "default": "keep"
 }
