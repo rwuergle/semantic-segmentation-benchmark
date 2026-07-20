@@ -84,11 +84,11 @@ or use the static method that allows to compare two classifier between each othe
 
 | ID | Color | Legend | Normalized RGB |
 | :--- | :---: | :--- | :---: |
-| **3** | <span style="display:inline-block; width:35px; height:18px; background-color:#009900; border:1px solid #222; border-radius:3px;"></span> | All three match | `[0.0, 0.6, 0.0]` |
-| **26** | <span style="display:inline-block; width:35px; height:18px; background-color:#3333cc; border:1px solid #222; border-radius:3px;"></span> | Only classifier 1 matches GT | `[0.2, 0.2, 0.8]` |
-| **2** | <span style="display:inline-block; width:35px; height:18px; background-color:#994d33; border:1px solid #222; border-radius:3px;"></span> | Only classifier 2 matches GT | `[0.6, 0.3, 0.2]` |
-| **0** | <span style="display:inline-block; width:35px; height:18px; background-color:#af549d; border:1px solid #222; border-radius:3px;"></span> | both agree but defer from GT | `[0.7, 0.3, 0.6]` |
-| **21** | <span style="display:inline-block; width:35px; height:18px; background-color:#ff0033; border:1px solid #222; border-radius:3px;"></span> | Neither matches GT | `[1.0, 0.0, 0.2]` |
+| **3** |🟩| All three match | `[0.0, 0.6, 0.0]` |
+| **26** |🟦| Only classifier 1 matches GT | `[0.2, 0.2, 0.8]` |
+| **2** |🟫| Only classifier 2 matches GT | `[0.6, 0.3, 0.2]` |
+| **0** |🟪| both agree but defer from GT | `[0.7, 0.3, 0.6]` |
+| **21** |🟥| Neither matches GT | `[1.0, 0.0, 0.2]` |
 
 ![Visualisation of spatial comparison between flai and minkunet classifier](./images/spatial_comparison_visual.png)
 *Figure: Visualisation of the spatial comparison between flai and minkunet classifiers*
