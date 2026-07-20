@@ -3,7 +3,6 @@ The aim of this library is to compare the metrics of different point cloud class
 
 ![Tile 2563000_1208500 classification (2022 top and minkunet bottom)](./images/point_cloud_pred_vs_gt.png)
 
-
 ## 1. Benchmark
 The class `benchmark` from the module `semantic_segmentation_benchmark.metrics` handles point cloud formats ``(copc).laz`` and ``.las``. 
 ### 1.1 generate_report()
@@ -38,7 +37,7 @@ When creating thoses maps in the package, they have the keyword *default*, which
 
 its important to be careful while remapping, since some classifier dont predict the same number of classes. For example, in the 7 classes benchmark, *pointly* classifier actually only predicts 5 classes (the building class is aggregated). So multiple ground truth id must be remapped to the same id. This ground truth reclassification map is classed `SITN_POINTLY_REMAP` and is available in `semantic_segmentation_benchmark.constants` like other reclassification map (flai, minkunet SITN, classical SITN, deep learning SITN, pointly as well as the two ground truth remap (pointly remap and other remap)).
 
-Another important point to mention is that most of point clouds have generated a slight $\Delta r$ with r the position (x,y,z). So the points are not exactly alligned, and have to be matched, since their index most likely differs. There are two proposed methods: bucket matching (faster, per default) and kd_tree matching, which is required if $\Delta r$ is significant. Just add the keyword argument `use_kdtree_matching=True`. In any cases, its also possible to add the ``matching_precision`` (max distance or rounding is $10^{-\mathrm{matching\_precision}}$) which is per default 3.0 (float). Notice that in ambiguous cases, some points might be removed.
+Another important point to mention is that most of point clouds have generated a slight $\Delta r$ with r the position (x,y,z). So the points are not exactly alligned, and have to be matched, since their index most likely differs. There are two proposed methods: bucket matching (faster, per default) and kd_tree matching, which is required if $\Delta r$ is significant. Just add the keyword argument `use_kdtree_matching=True`. In any cases, its also possible to add the ``matching_precision`` (max distance or rounding is $10^{-\mathrm{matching precision}}$) which is per default 3.0 (float). Notice that in ambiguous cases, some points might be removed.
 
 The method then continues to compute some metrics which will finally be added to the *.json*. the file may then be drag and dropped into [tile_classification_dashboard.html](../tile_classification_dashboard.html), which is the visualisation of the results. 
 
@@ -54,14 +53,17 @@ In other cases, it might be that the reports of different classifiers do not con
 
 ### 1.2.2 Classes Managment
 For analysis purposes, some classes might need to be aggregated sometimes. For example, building roof, building facade and roof structures need to be aggregated into building to compare flai with pointly. For the building special case, there is a pre-build aggregator in `Manage classes` called `+ Preset: Building (3 sub-classes)`. The metrics are recomputed for the aggregated group. A group can later be modified of deleted if requested by the user.
+
 ![classes_management](./images/classes_management.png)
 
 ### 1.2.3 Overview Panel
 The overview panel summerizes the information present in the imported reports. Notice that for the `Overview`, `Tiles` and `Classes` panel, the information shows is only the one from the selected model in the header (and is all models per default). In this panel, we see the number of tiles shown and the overall metrics, as well as the per class metrics over the entire dataset shown.
+
 ![Overview Panel 1](./images/overview1.png)
 
 ### 1.2.4 Tile Panel
 The tile panel manages all the imported tiles. Itshows only the ones of the selected model and does not show the hidden ones if the button to hide tiles with missing support is selected. in `All tiles`, there is an overview of the per-tile metrics. However, it is possible to get the detailed per-class metrics by clicking on the tile. If present, there will also be a confusion matrix.
+
 ![Tile Panel](./images/tile_panel.png)
 
 ### 1.2.5 Classes Panel
@@ -69,6 +71,24 @@ This panel is straight forward. Its shows information for a chosen class for the
 
 ### 1.2.6 Models Panel
 This panel is the most improtant one for model benchmark. It allows to compare different model's performance, overall or per-tile performance. The user can select across 4 metrics (F1, precision, recall and iou). Notice that iou is computed within the html file and is not directly provided in the *report.json*. 
+
 ![Model Panel 1](./images/model_panel1.png)
 
 Further down, there is `Compare one tile across models` which allows to compare the metrics of different models for a chosen tile. One can select or unselect a model with a click on the model name colored div.
+
+# 2. SpatialBenchmark
+`SpatialBenchmark` is a class that allows to visualise the classifier results in 3 dimensions (point cloud *.copc.laz* format). One can either use `generate_visual_comparaison` to get a binary classification:
+* 3: The classifier matches the ground truth
+* 21: The classifier does not match the ground truth
+or use the static method that allows to compare two classifier between each other and the ground truth using `generate_visual_bimodel_comparaison`. The classification is done as follow (color is a user's choice in potree/QGIS):
+
+| ID | Color | Legend | Normalized RGB |
+| :--- | :---: | :--- | :---: |
+| **3** | <span style="display:inline-block; width:35px; height:18px; background-color:#009900; border:1px solid #222; border-radius:3px;"></span> | All three match | `[0.0, 0.6, 0.0]` |
+| **26** | <span style="display:inline-block; width:35px; height:18px; background-color:#3333cc; border:1px solid #222; border-radius:3px;"></span> | Only classifier 1 matches GT | `[0.2, 0.2, 0.8]` |
+| **2** | <span style="display:inline-block; width:35px; height:18px; background-color:#994d33; border:1px solid #222; border-radius:3px;"></span> | Only classifier 2 matches GT | `[0.6, 0.3, 0.2]` |
+| **0** | <span style="display:inline-block; width:35px; height:18px; background-color:#af549d; border:1px solid #222; border-radius:3px;"></span> | both agree but defer from GT | `[0.7, 0.3, 0.6]` |
+| **21** | <span style="display:inline-block; width:35px; height:18px; background-color:#ff0033; border:1px solid #222; border-radius:3px;"></span> | Neither matches GT | `[1.0, 0.0, 0.2]` |
+
+![Visualisation of spatial comparison between flai and minkunet classifier](./images/spatial_comparison_visual.png)
+*Figure: Visualisation of the spatial comparison between flai and minkunet classifiers*

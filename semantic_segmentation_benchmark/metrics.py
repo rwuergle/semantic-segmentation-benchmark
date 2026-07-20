@@ -170,6 +170,10 @@ class Benchmark:
 
         return predictions, ground_truth
     
+class SpatialBenchmark:
+    def __init__(self):
+        pass
+
     @staticmethod
     def generate_visual_comparaison(predictions_pc_dir: str, ground_truth_pc_dir: str, output_path: str | None = None, remap_predictions: dict | None = None, remap_ground_truth: dict | None = None) -> None:
         
@@ -187,6 +191,7 @@ class Benchmark:
         pc_output.classification = classification
         write_copc_from_lasdata(pc_output, output_path)
     
+    @staticmethod
     def generate_visual_bimodel_comparaison(predictions_pc1_dir: str, predictions_pc2_dir: str, ground_truth_pc_dir: str, output_path: str | None = None, remap1_predictions: dict | None = None, remap2_predictions: dict | None = None, remap_ground_truth: dict | None = None) -> None:
         
         if output_path is None:
