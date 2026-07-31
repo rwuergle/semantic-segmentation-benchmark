@@ -1,0 +1,1 @@
+python ./scripts/do_inference.py --las-folder D:\chemin_vers_le_dossier_avec_les_morceaux_de_tuile --model-path D:\chemin\simon.pth --output-folder D:\dossier_de_sortie --model-name unet64_14 & d:/chemin_vers_venv/.venv/Scripts/python.exe d:/dossier/combine.py

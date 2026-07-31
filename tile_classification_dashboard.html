@@ -266,6 +266,11 @@ body.dragging .drag-overlay{display:flex;}
 .cm-block{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);}
 .cm-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
 .cm-scroll{overflow-x:auto;}
+.cm-compare-wrap{display:flex;flex-direction:column;gap:20px;}
+.cm-compare-col{width:100%;}
+#modelsConfusionCol2{border-top:1px dashed var(--line);padding-top:16px;}
+.cm-compare-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.cm-compare-head .mini-card-std{font-size:11.5px;}
 
 </style>
 </head>
@@ -287,12 +292,18 @@ body.dragging .drag-overlay{display:flex;}
           <option value="">All models</option>
         </select>
       </label>
-      <label class="filter-label checkbox-label" title="A class that has a key in a tile's own report but 0 ground-truth support there still gets precision/recall/F1 = 0 for it, which drags down macro averages for a class that was never actually present there. Checking this hides those tiles everywhere except the warning badge in the Tiles table. A class that is simply absent from a tile's JSON (different taxonomy) never counts as 'missing'.">
+      <label class="filter-label checkbox-label" title="A class that has a key in a tile's own report but 0 ground-truth support there still gets precision/recall/F1 = 0 for it, which drags down macro averages for a class that was never actually present there. Checking this excludes that condition using whichever scope is picked in the dropdown to the right. A class that is simply absent from a tile's JSON (different taxonomy) never counts as 'missing'.">
         <input type="checkbox" id="excludeZeroSupportCheckbox" checked>
         Hide tiles with missing classes (0 support)
       </label>
-      <label class="filter-label checkbox-label" id="showAllClassesLabel" title="By default only classes present in every loaded tile are shown, so tiles with different class taxonomies stay comparable. Check this to show the union of every class found anywhere instead.">
-        <input type="checkbox" id="showAllClassesCheckbox">
+      <label class="filter-label" id="zeroSupportModeLabel" title="Whole tile: drop the entire tile from every chart, table and average once it has any class at 0 support. Only affected class(es): keep the tile everywhere else — it still counts fully for its other classes — but exclude just its 0-support class(es) from that class's own cross-tile averages (e.g. a tile missing 'roof' is dropped from roof's average but still counted for 'ground').">
+        <select id="zeroSupportModeSelect" class="select select-small">
+          <option value="tile">Whole tile</option>
+          <option value="class">Only affected class(es)</option>
+        </select>
+      </label>
+      <label class="filter-label checkbox-label" id="showAllClassesLabel" title="Shows the union of every class found anywhere. Uncheck to restrict to classes present in every loaded tile, so tiles with different class taxonomies stay comparable.">
+        <input type="checkbox" id="showAllClassesCheckbox" checked>
         Show all classes
       </label>
       <button id="manageClassesBtn" class="btn btn-ghost" title="Merge classes with different names (e.g. Car + Truck → Vehicles, or Building roofs + Building facades + Roof structures → Building) into one for comparison.">⚙ Manage classes</button>
@@ -447,8 +458,19 @@ body.dragging .drag-overlay{display:flex;}
       </div>
       <div id="modelsContent" style="display:none;">
         <div class="card">
+          <h2 class="card-title">Compare models</h2>
+          <p class="card-note">Click a model to include or exclude it from every table and chart below — Model summary, per-class comparison, and the confusion matrix. At least one model stays selected. This is separate from the model filter above, which only affects the Overview, Tiles and Classes tabs.</p>
+          <div id="modelsCompareToggles" class="legend"></div>
+          <label class="filter-label checkbox-label" style="margin-top:10px;" title="When 2 or more models are selected above, restrict every table and chart below to only the tile IDs that all of them have in common — so a model that's simply missing a few tiles can't make its average look better or worse than it really is relative to the others.">
+            <input type="checkbox" id="modelsCompareCommonOnlyCheckbox">
+            Only use tiles present in every selected model
+          </label>
+          <p class="card-note" id="modelsCompareCommonOnlyNote" style="display:none;"></p>
+        </div>
+        <div class="card">
           <h2 class="card-title">Model summary</h2>
-          <p class="card-note">Mean ± standard deviation across all tiles for each model. This tab ignores the model filter above — it always compares everything loaded.</p>
+          <p class="card-note">Mean ± standard deviation across all tiles for each model. Click a column to rank models by it.</p>
+          <p class="card-note" id="modelsSummaryModeNote"></p>
           <div id="modelsSummaryTable"></div>
         </div>
         <div class="card">
@@ -461,8 +483,20 @@ body.dragging .drag-overlay{display:flex;}
               <option value="iou">IoU</option>
             </select>
           </div>
-          <div id="modelsLegend" class="legend"></div>
           <div id="modelsClassChart" class="chart-box"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title-row">
+            <h2 class="card-title">Per-class metrics — all models</h2>
+            <select id="modelsPerClassMetricSelect" class="select select-small">
+              <option value="f1">F1</option>
+              <option value="precision">Precision</option>
+              <option value="recall">Recall</option>
+              <option value="iou">IoU</option>
+            </select>
+          </div>
+          <div id="modelsPerClassTable"></div>
         </div>
 
         <div class="card" id="modelsConfusionCard" style="display:none;">
@@ -470,15 +504,35 @@ body.dragging .drag-overlay{display:flex;}
             <h2 class="card-title">Confusion matrix — model total</h2>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <select id="modelsConfusionModelSelect" class="select select-small"></select>
+              <label class="filter-label" style="gap:4px;" title="Pick a second model to render its confusion matrix alongside the first, for a direct side-by-side comparison.">
+                vs
+                <select id="modelsConfusionModel2Select" class="select select-small">
+                  <option value="">— none —</option>
+                </select>
+              </label>
               <select id="modelsConfusionModeSelect" class="select select-small">
                 <option value="raw">Raw counts</option>
                 <option value="row">Row-normalized (recall)</option>
                 <option value="col">Column-normalized (precision)</option>
               </select>
+              <select id="modelsConfusionExportFormatSelect" class="select select-small" title="File format for the exported plot">
+                <option value="png">PNG</option>
+                <option value="svg">SVG</option>
+              </select>
+              <button id="modelsConfusionExportBtn" class="btn btn-ghost btn-small" title="Save the matrix (or matrices, if comparing) as an image">Export plot</button>
             </div>
           </div>
           <p class="card-note" id="modelsConfusionNote"></p>
-          <div id="modelsConfusionChart" class="chart-box"></div>
+          <div id="modelsConfusionWrap" class="cm-compare-wrap">
+            <div class="cm-compare-col">
+              <div class="cm-compare-head" id="modelsConfusionHead1"></div>
+              <div id="modelsConfusionChart" class="chart-box"></div>
+            </div>
+            <div class="cm-compare-col" id="modelsConfusionCol2" style="display:none;">
+              <div class="cm-compare-head" id="modelsConfusionHead2"></div>
+              <div id="modelsConfusionChart2" class="chart-box"></div>
+            </div>
+          </div>
         </div>
 
         <div class="card">
@@ -555,13 +609,15 @@ const state = {
   tiles: new Map(),
   classOrderAll: [],     // union of all (grouped) classes across every loaded tile
   classOrderCommon: [],  // classes present in every loaded tile (grouped) — the default view
-  showAllClasses: false, // false = show only classes common to all tiles; true = show the union
+  showAllClasses: true, // false = show only classes common to all tiles; true = show the union
   classGroups: [],       // [{id, name, members:[lowercase raw class names]}] — user-defined aggregations
   modelOrder: [],
   modelFilter: null,
   excludeZeroSupport: true,
+  zeroSupportGranularity: 'tile', // 'tile' = drop the whole tile; 'class' = drop only that (tile, class) pair from cross-tile class averages
   confusionMode: 'raw',  // 'raw' | 'row' (recall-style) | 'col' (precision-style) — Tiles tab
   modelsConfusionModel: null,
+  modelsConfusionModel2: null, // optional second model, shown side-by-side with modelsConfusionModel for direct comparison
   modelsConfusionMode: 'raw', // separate control for the Models-tab "model total" matrix
   classManagerOpen: false,
   classManagerSelected: new Set(), // lowercase raw class names checked in the "Manage classes" dialog
@@ -574,6 +630,14 @@ const state = {
   selectedClass: null,
   heatmapMetric: 'f1-score',
   modelsChartMetric: 'f1',
+  modelsPerClassMetric: 'f1', // separate metric choice for the "Per-class metrics — all models" table below the chart
+  modelsCompareModels: null, // Set of models enabled in the Models-tab compare panel; null = not yet initialized (defaults to all)
+  modelsCompareCommonOnly: false, // when true (and 2+ models active), restrict comparison to tileIds present in every active model
+  modelsCompareKnownModels: null, // last-seen list of all loaded models, used to auto-enable newly-added ones
+  modelsSummarySortKey: null, // null = keep load order; otherwise one of the Model summary table's column keys
+  modelsSummarySortDir: 'desc',
+  modelsPerClassSortKey: 'model', // 'model' (row label) or a class name (column key)
+  modelsPerClassSortDir: 'asc',
   tileCompare: null,
   tileCompareLastTile: null,
   tileCompareModels: new Set(),
@@ -588,7 +652,7 @@ const state = {
 const PALETTE = {
   'none': '#808080',
   'ground': '#994D33',
-  'vegetation': '#00FF00',
+  'vegetation': '#009900',
   'building roofs': '#FFA800',
   'cars': '#FF0033',
   'building facades': '#B3B3B3',
@@ -910,8 +974,28 @@ function tileMissingClasses(t){
 
 function qualityTiles(){
   const all = [...state.tiles.values()];
-  if (!state.excludeZeroSupport) return all;
+  if (!state.excludeZeroSupport || state.zeroSupportGranularity==='class') return all;
   return all.filter(t=>tileMissingClasses(t).length===0);
+}
+
+// True when the "class"-granularity hide mode is active: a tile is never dropped wholesale
+// (that only happens in 'tile' granularity, upstream in qualityTiles()) — instead individual
+// (tile, class) pairs with 0 support are excluded one at a time via getClassMAgg() below.
+function perClassExclusionActive(){
+  return state.excludeZeroSupport && state.zeroSupportGranularity==='class';
+}
+
+// Cross-tile per-class aggregation lookup. Identical to getClassM() except that, when
+// per-class exclusion is active, a (tile, class) pair with 0 ground-truth support is treated
+// as absent here — excluded from that class's average — while the tile stays fully present
+// for every other class's aggregates. Use this (not getClassM) anywhere a class's metrics are
+// being averaged/summed ACROSS tiles; keep using getClassM for per-tile-per-cell displays
+// (e.g. the heatmap) that want to show the excluded state explicitly rather than just omit it.
+function getClassMAgg(t, cls){
+  const m = getClassM(t, cls);
+  if (!m) return null;
+  if (perClassExclusionActive() && m.support<=0) return null;
+  return m;
 }
 
 function recomputeOrders(){
@@ -1101,14 +1185,22 @@ function onDataChanged(){
   rerenderCurrent();
 }
 
+function updateZeroSupportModeVisibility(){
+  const label = document.getElementById('zeroSupportModeLabel');
+  if (label) label.style.display = state.excludeZeroSupport ? 'flex' : 'none';
+}
+
 function renderQualityBanner(){
   const el = document.getElementById('qualityBanner');
   const all = [...state.tiles.values()];
   const flagged = all.filter(t=>tileMissingClasses(t).length>0);
   if (!flagged.length){ el.style.display='none'; return; }
   el.style.display='flex';
-  if (state.excludeZeroSupport){
+  if (state.excludeZeroSupport && state.zeroSupportGranularity==='tile'){
     el.innerHTML = `<span>⚠ Hiding <strong>${flagged.length}</strong> of ${all.length} tile(s) with at least one class at 0 support — they're excluded from every chart, table and average on this page.</span>`;
+  } else if (state.excludeZeroSupport && state.zeroSupportGranularity==='class'){
+    const instances = flagged.reduce((s,t)=>s+tileMissingClasses(t).length,0);
+    el.innerHTML = `<span>⚠ Excluding <strong>${instances}</strong> zero-support class instance(s) across <strong>${flagged.length}</strong> of ${all.length} tile(s) — only from that class's own averages, so each tile still counts fully for its other classes.</span>`;
   } else {
     el.innerHTML = `<span>⚠ <strong>${flagged.length}</strong> of ${all.length} tile(s) have at least one class with 0 support, which can bias macro averages. Check "Hide tiles with missing classes" above to exclude them.</span>`;
   }
@@ -1215,7 +1307,7 @@ function renderClassBarChart(tiles){
   const data = classes.map(cls=>{
     const vals = {precision:[], recall:[], f1:[], iou:[]};
     tiles.forEach(t=>{
-      const m = getClassM(t, cls);
+      const m = getClassMAgg(t, cls);
       if (m){
         vals.precision.push(m.precision);
         vals.recall.push(m.recall);
@@ -1284,7 +1376,7 @@ function renderSupportChart(tiles){
   const innerW = width-margin.left-margin.right;
 
   const totals = classes.map(cls=>{
-    let sum=0; tiles.forEach(t=>{ if (getClassM(t, cls)) sum += (getClassM(t, cls).support||0); });
+    let sum=0; tiles.forEach(t=>{ const m=getClassMAgg(t, cls); if (m) sum += (m.support||0); });
     return sum;
   });
   const positives = totals.filter(v=>v>0);
@@ -1397,15 +1489,20 @@ function renderHeatmap(tiles){
     cells += `<text x="${labelW-10}" y="${(y+cellH/2+4).toFixed(1)}" text-anchor="end" class="heatmap-row-label">${esc(t.tileId)} <tspan fill="${modelColor(t.model)}">· ${esc(t.model)}</tspan></text>`;
     classes.forEach((cls,j)=>{
       const x = labelW + j*cellW;
-      const m = getClassM(t, cls);
+      const mRaw = getClassM(t, cls);
+      const excluded = mRaw && perClassExclusionActive() && mRaw.support<=0;
+      const m = excluded ? null : mRaw;
       const val = !m ? null :
         metricKey === 'iou' ? iouFromPR(m.precision, m.recall) : m[metricKey];
-      const fill = val!=null ? scoreColor(val) : '#EDEBDC';
-      const tip = m
-        ? `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)} — ${metricLabel} ${pct(val)} (shown)\nP ${pct(m.precision)} · R ${pct(m.recall)} · F1 ${pct(m['f1-score'])} · IoU ${pct(iouFromPR(m.precision,m.recall))} · n=${fmtBig(m.support)}`
-        : `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)}: no data`;
-      cells += `<rect x="${x+2}" y="${y+2}" width="${cellW-4}" height="${cellH-4}" rx="3" fill="${fill}" data-tip="${tip}"/>`;
+      const fill = excluded ? '#E2DFCC' : (val!=null ? scoreColor(val) : '#EDEBDC');
+      const tip = excluded
+        ? `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)}: excluded (0 support) — not counted toward this class's averages`
+        : m
+          ? `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)} — ${metricLabel} ${pct(val)} (shown)\nP ${pct(m.precision)} · R ${pct(m.recall)} · F1 ${pct(m['f1-score'])} · IoU ${pct(iouFromPR(m.precision,m.recall))} · n=${fmtBig(m.support)}`
+          : `${esc(t.tileId)} · ${esc(t.model)}\n${esc(cls)}: no data`;
+      cells += `<rect x="${x+2}" y="${y+2}" width="${cellW-4}" height="${cellH-4}" rx="3" fill="${fill}" data-tip="${tip}" ${excluded?'stroke="#B5B190" stroke-dasharray="3 2"':''}/>`;
       if (val!=null) cells += `<text x="${x+cellW/2}" y="${(y+cellH/2+3.5).toFixed(1)}" text-anchor="middle" class="heatmap-cell-text">${pctNum(val,0)}</text>`;
+      else if (excluded) cells += `<text x="${x+cellW/2}" y="${(y+cellH/2+3.5).toFixed(1)}" text-anchor="middle" class="heatmap-cell-text" fill="#9A9575">–</text>`;
     });
   });
 
@@ -1592,11 +1689,11 @@ function exportCSV(){
       eff.accuracy??'', eff.balanced_accuracy??'', eff.cohen_kappa??'',
       eff.macro?eff.macro['f1-score']:'', eff.weighted?eff.weighted['f1-score']:'',
       tileMIoU(t)??'',
-      ...classes.map(c=> { const m=getClassM(t,c); return m ? m['f1-score'] : ''; }),
-      ...classes.map(c=> { const m=getClassM(t,c); return m ? m.precision : ''; }),
-      ...classes.map(c=> { const m=getClassM(t,c); return m ? m.recall : ''; }),
-      ...classes.map(c=> { const m=getClassM(t,c); return m ? iouFromPR(m.precision,m.recall) : ''; }),
-      ...classes.map(c=> { const m=getClassM(t,c); return m ? m.support : ''; })
+      ...classes.map(c=> { const m=getClassMAgg(t,c); return m ? m['f1-score'] : ''; }),
+      ...classes.map(c=> { const m=getClassMAgg(t,c); return m ? m.precision : ''; }),
+      ...classes.map(c=> { const m=getClassMAgg(t,c); return m ? m.recall : ''; }),
+      ...classes.map(c=> { const m=getClassMAgg(t,c); return m ? iouFromPR(m.precision,m.recall) : ''; }),
+      ...classes.map(c=> { const m=getClassMAgg(t,c); return m ? m.support : ''; })
     ];
     lines.push(row.map(csvEsc).join(','));
   });
@@ -1629,7 +1726,7 @@ function renderClassesTab(){
 function renderClassDetail(tiles, cls){
   if (!cls) return;
   state.selectedClass = cls;
-  const rows = tiles.map(t=>({filename:t.filename, tileId:t.tileId, model:t.model, tile:t, m:getClassM(t, cls)})).filter(r=>r.m);
+  const rows = tiles.map(t=>({filename:t.filename, tileId:t.tileId, model:t.model, tile:t, m:getClassMAgg(t, cls)})).filter(r=>r.m);
 
   if (!rows.length){
     document.getElementById('classSummary').innerHTML = '<p class="chart-empty">No data for this class.</p>';
@@ -1764,30 +1861,93 @@ function renderClassScatter(rows, cls){
 }
 
 /* ============================== Models tab ============================== */
+// Active models = those toggled on in the "Compare models" panel, in modelOrder. Falls back to
+// every loaded model if the toggle set hasn't been initialized yet (e.g. before first render).
+// When "Only use tiles present in every selected model" is on (and 2+ models are active), tiles
+// are further restricted to the tileIds every active model actually has, so an uneven model
+// coverage (e.g. one model missing a few tiles) can't skew the comparison — everything below
+// (Model summary, per-class chart/table, confusion matrix) ends up averaged over the exact same
+// set of tiles for every model being compared.
+function modelsCompareContext(){
+  const activeSet = state.modelsCompareModels;
+  const activeModels = activeSet ? state.modelOrder.filter(m=>activeSet.has(m)) : state.modelOrder;
+  let tiles = activeSet ? qualityTiles().filter(t=>activeSet.has(t.model)) : qualityTiles();
+  let commonTileIds = null;
+  if (state.modelsCompareCommonOnly && activeModels.length>1){
+    const idSets = activeModels.map(m=> new Set(tiles.filter(t=>t.model===m).map(t=>t.tileId)));
+    commonTileIds = idSets.reduce((acc, s)=> new Set([...acc].filter(id=>s.has(id))));
+    tiles = tiles.filter(t=>commonTileIds.has(t.tileId));
+  }
+  return { activeModels, tiles, commonTileIds };
+}
+
 function renderModelsTab(){
-  const tiles = qualityTiles();
-  document.getElementById('modelsEmpty').style.display = tiles.length? 'none':'block';
-  document.getElementById('modelsContent').style.display = tiles.length? 'block':'none';
-  if (!tiles.length) return;
-  renderModelsSummaryTable(tiles);
-  renderModelsLegend();
-  renderModelsClassChart(tiles, state.modelsChartMetric);
-  renderModelsConfusion();
+  const allTiles = qualityTiles();
+  document.getElementById('modelsEmpty').style.display = allTiles.length? 'none':'block';
+  document.getElementById('modelsContent').style.display = allTiles.length? 'block':'none';
+  if (!allTiles.length) return;
+
+  // Keep the compare-panel toggle set in sync with whatever models are actually loaded:
+  // drop ones that disappeared, and auto-enable any newly-added model so new data shows up
+  // by default while still respecting the person's existing on/off choices.
+  const presentModels = state.modelOrder;
+  if (!state.modelsCompareModels){
+    state.modelsCompareModels = new Set(presentModels);
+  } else {
+    const known = state.modelsCompareKnownModels || [];
+    const newlyAdded = presentModels.filter(m=>!known.includes(m));
+    state.modelsCompareModels = new Set([...state.modelsCompareModels].filter(m=>presentModels.includes(m)));
+    newlyAdded.forEach(m=>state.modelsCompareModels.add(m));
+    if (state.modelsCompareModels.size===0) state.modelsCompareModels = new Set(presentModels);
+  }
+  state.modelsCompareKnownModels = presentModels;
+
+  renderModelsCompareToggles();
+  document.getElementById('modelsCompareCommonOnlyCheckbox').checked = state.modelsCompareCommonOnly;
+
+  const { activeModels, tiles, commonTileIds } = modelsCompareContext();
+
+  const noteEl = document.getElementById('modelsCompareCommonOnlyNote');
+  if (state.modelsCompareCommonOnly){
+    if (activeModels.length<2){
+      noteEl.textContent = 'Select 2 or more models above to see the effect of this option.';
+    } else {
+      const perModelCounts = activeModels.map(m=>allTiles.filter(t=>t.model===m && state.modelsCompareModels.has(t.model)).length);
+      noteEl.textContent = `Using ${commonTileIds.size} tile ID(s) common to all ${activeModels.length} selected models (individually they have ${Math.min(...perModelCounts)}–${Math.max(...perModelCounts)} tiles each).`;
+    }
+    noteEl.style.display = 'block';
+  } else {
+    noteEl.textContent = '';
+    noteEl.style.display = 'none';
+  }
+
+  renderModelsSummaryTable(tiles, activeModels);
+  renderModelsClassChart(tiles, state.modelsChartMetric, 'modelsClassChart', activeModels);
+  renderModelsPerClassTable(tiles, activeModels);
+  renderModelsConfusion(activeModels, commonTileIds);
   renderTileCompare();
 }
 
-function renderModelsLegend(){
-  const el = document.getElementById('modelsLegend');
-  el.innerHTML = state.modelOrder.map(m=>`<span class="legend-item"><i style="background:${modelColor(m)}"></i>${esc(m)}</span>`).join('');
+function renderModelsCompareToggles(){
+  const el = document.getElementById('modelsCompareToggles');
+  el.innerHTML = state.modelOrder.map(m=>{
+    const active = state.modelsCompareModels.has(m);
+    const mc = modelColor(m);
+    const style = active
+      ? `background:${mc}22;color:${mc};border-color:${mc};`
+      : `background:#fff;color:var(--ink-soft);border-color:var(--line);`;
+    return `<button type="button" class="model-toggle${active?' active':''}" data-model="${esc(m)}" style="${style}">${esc(m)}</button>`;
+  }).join('');
 }
 
 // Sums every quality-passing tile's (grouped) confusion matrix for one model into a single
 // matrix aligned to `labels`. Tiles without a confusion_matrix simply don't contribute —
 // they're still counted in the Model summary table's accuracy/kappa (via report_dict
 // reconstruction there), just not representable as a matrix.
-function sumConfusionForModel(model, labels){
+function sumConfusionForModel(model, labels, tileIdFilter){
   const gm = buildGroupMap();
-  const tiles = qualityTiles().filter(t=>t.model===model && t.confusionMatrix);
+  let tiles = qualityTiles().filter(t=>t.model===model && t.confusionMatrix);
+  if (tileIdFilter) tiles = tiles.filter(t=>tileIdFilter.has(t.tileId));
   if (!tiles.length) return null;
   const n = labels.length;
   const mat = Array.from({length:n}, ()=>Array(n).fill(0));
@@ -1808,53 +1968,152 @@ function sumConfusionForModel(model, labels){
   return any ? { labels, matrix: mat, tileCount: tiles.length } : null;
 }
 
-function renderModelsConfusion(){
+function renderModelsConfusion(modelsList, tileIdFilter){
   const card = document.getElementById('modelsConfusionCard');
-  const models = state.modelOrder;
+  const models = modelsList || state.modelOrder;
   if (!models.length){ card.style.display='none'; return; }
   card.style.display='block';
 
   const sel = document.getElementById('modelsConfusionModelSelect');
+  const sel2 = document.getElementById('modelsConfusionModel2Select');
   const modeSel = document.getElementById('modelsConfusionModeSelect');
-  const container = document.getElementById('modelsConfusionChart');
   const note = document.getElementById('modelsConfusionNote');
+  const col2 = document.getElementById('modelsConfusionCol2');
 
   const sig = models.join('|');
   if (sel.dataset.populated !== sig){
     sel.innerHTML = models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
     sel.dataset.populated = sig;
   }
+  if (sel2.dataset.populated !== sig){
+    sel2.innerHTML = '<option value="">— none —</option>' + models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    sel2.dataset.populated = sig;
+  }
   if (!state.modelsConfusionModel || !models.includes(state.modelsConfusionModel)) state.modelsConfusionModel = models[0];
+  if (state.modelsConfusionModel2 && !models.includes(state.modelsConfusionModel2)) state.modelsConfusionModel2 = null;
   sel.value = state.modelsConfusionModel;
+  sel2.value = state.modelsConfusionModel2 || '';
   modeSel.value = state.modelsConfusionMode;
 
+  const comparing = !!state.modelsConfusionModel2 && state.modelsConfusionModel2 !== state.modelsConfusionModel;
+  col2.style.display = comparing ? 'block' : 'none';
+
   const labels = effectiveClassOrder();
-  const summed = sumConfusionForModel(state.modelsConfusionModel, labels);
-  if (!summed){
-    container.innerHTML = '<p class="chart-empty">None of this model\'s tiles include a confusion_matrix — only files exported with one can be summed here.</p>';
+  const summed1 = sumConfusionForModel(state.modelsConfusionModel, labels, tileIdFilter);
+  const summed2 = comparing ? sumConfusionForModel(state.modelsConfusionModel2, labels, tileIdFilter) : null;
+
+  // Raw-count mode: share one color scale (the larger of the two matrices' max cell) across
+  // both panels so darker/lighter cells mean the same thing in each — otherwise every matrix
+  // would separately normalize to its own max and two very different-sized models could look
+  // deceptively similar. Row/col-normalized modes are already 0-100% and naturally comparable.
+  const sharedMax = (state.modelsConfusionMode==='raw' && summed1 && summed2)
+    ? Math.max(1, Math.max(...summed1.matrix.flat()), Math.max(...summed2.matrix.flat()))
+    : null;
+
+  renderOneModelConfusion('modelsConfusionChart', 'modelsConfusionHead1', state.modelsConfusionModel, summed1, sharedMax);
+  if (comparing) renderOneModelConfusion('modelsConfusionChart2', 'modelsConfusionHead2', state.modelsConfusionModel2, summed2, sharedMax);
+
+  const scopeNote = tileIdFilter ? ' (restricted to tiles common to all selected models)' : '';
+  if (comparing){
+    note.textContent = `Each matrix sums that model's own tiles with a confusion_matrix${scopeNote}. Raw counts share one color scale across both so intensity is directly comparable.`;
+  } else if (summed1){
+    note.textContent = `Summed across ${summed1.tileCount} tile${summed1.tileCount>1?'s':''} with a confusion matrix for ${state.modelsConfusionModel}${scopeNote}. Pick a second model above to compare it side-by-side.`;
+  } else {
     note.textContent = '';
-    return;
   }
-  note.textContent = `Summed across ${summed.tileCount} tile${summed.tileCount>1?'s':''} with a confusion matrix for ${state.modelsConfusionModel}.`;
-  renderConfusionMatrix(container, summed, state.modelsConfusionMode);
 }
 
-function renderModelsSummaryTable(tiles){
+function renderOneModelConfusion(chartId, headId, model, summed, sharedMax){
+  const container = document.getElementById(chartId);
+  const head = document.getElementById(headId);
+  if (head){
+    const mc = modelColor(model);
+    head.innerHTML = `<span class="model-chip" style="background:${mc}22;color:${mc};border:1px solid ${mc}66;">${esc(model)}</span>` +
+      (summed ? `<span class="mini-card-std">${summed.tileCount} tile${summed.tileCount>1?'s':''}</span>` : '');
+  }
+  if (!summed){
+    container.innerHTML = state.modelsCompareCommonOnly
+      ? '<p class="chart-empty">No confusion_matrix data for this model among the tiles common to all selected models — try unchecking "Only use tiles present in every selected model".</p>'
+      : '<p class="chart-empty">None of this model\'s tiles include a confusion_matrix — only files exported with one can be summed here.</p>';
+    return;
+  }
+  renderConfusionMatrix(container, summed, state.modelsConfusionMode, {sharedMaxVal: sharedMax});
+}
+
+function renderModelsSummaryTable(tiles, modelsList){
   const container = document.getElementById('modelsSummaryTable');
+  const noteEl = document.getElementById('modelsSummaryModeNote');
+  if (noteEl){
+    if (state.excludeZeroSupport && state.zeroSupportGranularity==='class'){
+      noteEl.textContent = '"Only affected class(es)" mode doesn\'t change these numbers: accuracy, balanced accuracy, κ, macro F1 and mIoU are computed per tile, and a tile\'s own missing classes are already left out of its own numbers regardless of this setting — no tile is added or removed here. Switch to "Whole tile" to also drop flagged tiles from this table, or see the per-class chart and table below for where per-class exclusion does apply.';
+      noteEl.style.display = 'block';
+    } else {
+      noteEl.textContent = '';
+      noteEl.style.display = 'none';
+    }
+  }
+  const models = modelsList || state.modelOrder;
   const byModel = {};
-  state.modelOrder.forEach(m=>byModel[m]={accuracy:[],balanced:[],kappa:[],miou:[],count:0});
+  models.forEach(m=>byModel[m]={accuracy:[],balanced:[],kappa:[],macroF1:[],miou:[],count:0});
   tiles.forEach(t=>{
-    if (!byModel[t.model]) byModel[t.model]={accuracy:[],balanced:[],kappa:[],miou:[],count:0};
+    if (!byModel[t.model]) return; // toggled off in the compare panel
     byModel[t.model].count++;
     const eff = tileEffectiveSummary(t);
     if (eff.accuracy!=null) byModel[t.model].accuracy.push(eff.accuracy);
     if (eff.balanced_accuracy!=null) byModel[t.model].balanced.push(eff.balanced_accuracy);
     if (eff.cohen_kappa!=null) byModel[t.model].kappa.push(eff.cohen_kappa);
+    if (eff.macro && eff.macro['f1-score']!=null) byModel[t.model].macroF1.push(eff.macro['f1-score']);
     const mIoU = tileMIoU(t);
     if (mIoU!=null) byModel[t.model].miou.push(mIoU);
   });
+
+  if (!models.length){ container.innerHTML = '<p class="chart-empty">No model selected.</p>'; return; }
+  if (!tiles.length){
+    container.innerHTML = state.modelsCompareCommonOnly
+      ? '<p class="chart-empty">No tile IDs are common to all selected models — try unchecking "Only use tiles present in every selected model".</p>'
+      : '<p class="chart-empty">No tiles to summarize.</p>';
+    return;
+  }
+
+  const cols = [
+    {key:'model', label:'Model'},
+    {key:'count', label:'Tiles'},
+    {key:'accuracy', label:'Accuracy'},
+    {key:'balanced_accuracy', label:'Balanced acc.'},
+    {key:'cohen_kappa', label:"Cohen's κ"},
+    {key:'macro_f1', label:'Macro F1'},
+    {key:'miou', label:'mIoU'}
+  ];
+  const key = state.modelsSummarySortKey, dir = state.modelsSummarySortDir;
+  const getVal = (m)=>{
+    const d = byModel[m];
+    switch(key){
+      case 'model': return m;
+      case 'count': return d.count;
+      case 'accuracy': return mean(d.accuracy);
+      case 'balanced_accuracy': return mean(d.balanced);
+      case 'cohen_kappa': return mean(d.kappa);
+      case 'macro_f1': return mean(d.macroF1);
+      case 'miou': return mean(d.miou);
+      default: return 0;
+    }
+  };
+  const orderedModels = key
+    ? [...models].sort((a,b)=>{
+        const va=getVal(a), vb=getVal(b);
+        if (typeof va==='string') return dir==='asc'? va.localeCompare(vb) : vb.localeCompare(va);
+        return dir==='asc'? va-vb : vb-va;
+      })
+    : models;
+
+  const thead = '<tr>'+cols.map(c=>{
+    const cls = key===c.key ? 'sortable sorted-'+dir : 'sortable';
+    const arrow = key===c.key ? (dir==='asc'?' ▲':' ▼') : '';
+    return `<th data-modelsort-key="${c.key}" class="${cls}">${esc(c.label)}${arrow}</th>`;
+  }).join('')+'</tr>';
+
   let rows='';
-  state.modelOrder.forEach(m=>{
+  orderedModels.forEach(m=>{
     const d = byModel[m];
     const mc = modelColor(m);
     rows += `<tr>
@@ -1863,11 +2122,12 @@ function renderModelsSummaryTable(tiles){
       <td class="mono">${pct(mean(d.accuracy))} <span class="mini-card-std">± ${pct(std(d.accuracy))}</span></td>
       <td class="mono">${pct(mean(d.balanced))} <span class="mini-card-std">± ${pct(std(d.balanced))}</span></td>
       <td class="mono">${mean(d.kappa).toFixed(3)} <span class="mini-card-std">± ${std(d.kappa).toFixed(3)}</span></td>
+      <td class="mono">${pct(mean(d.macroF1))} <span class="mini-card-std">± ${pct(std(d.macroF1))}</span></td>
       <td class="mono">${pct(mean(d.miou))} <span class="mini-card-std">± ${pct(std(d.miou))}</span></td>
     </tr>`;
   });
   container.innerHTML = `<table class="data-table">
-    <thead><tr><th>Model</th><th>Tiles</th><th>Accuracy</th><th>Balanced acc.</th><th>Cohen's κ</th><th>mIoU</th></tr></thead>
+    <thead>${thead}</thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -1875,7 +2135,7 @@ function renderModelsSummaryTable(tiles){
 function renderModelsClassChart(tiles, metric, containerId, modelsList){
   const container = document.getElementById(containerId || 'modelsClassChart');
   const models = modelsList || state.modelOrder;
-  const classes = effectiveClassOrder().filter(cls=>tiles.some(t=>getClassM(t, cls)));
+  const classes = effectiveClassOrder().filter(cls=>tiles.some(t=>getClassMAgg(t, cls)));
   if (!classes.length || !models.length){ container.innerHTML='<p class="chart-empty">No data.</p>'; return; }
   const metricKey = metric==='f1' ? 'f1-score' : metric==='iou' ? null : metric;
   const getClassVal = (m) => metric==='iou' ? iouFromPR(m.precision, m.recall) : m[metricKey];
@@ -1889,7 +2149,7 @@ function renderModelsClassChart(tiles, metric, containerId, modelsList){
   const data = classes.map(cls=>{
     const perModel = models.map(model=>{
       const vals=[];
-      tiles.forEach(t=>{ if (t.model===model && getClassM(t, cls)) vals.push(getClassVal(getClassM(t, cls))); });
+      tiles.forEach(t=>{ if (t.model===model){ const m=getClassMAgg(t, cls); if (m) vals.push(getClassVal(m)); } });
       return {model, mean: mean(vals), std: std(vals), n: vals.length};
     });
     return {cls, perModel};
@@ -1932,6 +2192,61 @@ function renderModelsClassChart(tiles, metric, containerId, modelsList){
   });
 
   container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}">${gridLines}${bars}${axisLabels}</svg>`;
+}
+
+// Tabular counterpart to renderModelsClassChart: same underlying per-class-per-model data,
+// but as exact printed numbers you can sort and with its own metric picker (independent of
+// the chart above). Models run down the rows, classes across the columns — click "Model" for
+// alphabetical order, or a class's column to rank models by how well they do on that class.
+function renderModelsPerClassTable(tiles, modelsList){
+  const container = document.getElementById('modelsPerClassTable');
+  const models = modelsList || state.modelOrder;
+  const metric = state.modelsPerClassMetric;
+  const metricLabel = metric==='f1' ? 'F1' : metric==='precision' ? 'Precision' : metric==='recall' ? 'Recall' : 'IoU';
+  const metricKey = metric==='f1' ? 'f1-score' : metric==='iou' ? null : metric;
+  const getClassVal = (m) => metric==='iou' ? iouFromPR(m.precision, m.recall) : m[metricKey];
+
+  const classes = effectiveClassOrder().filter(cls=>tiles.some(t=>getClassMAgg(t, cls)));
+  if (!classes.length || !models.length){ container.innerHTML='<p class="chart-empty">No data.</p>'; return; }
+
+  const data = models.map(model=>{
+    const perClass = {};
+    classes.forEach(cls=>{
+      const vals=[];
+      tiles.forEach(t=>{ if (t.model===model){ const m=getClassMAgg(t, cls); if (m) vals.push(getClassVal(m)); } });
+      perClass[cls] = {mean: mean(vals), std: std(vals), n: vals.length};
+    });
+    return {model, perClass};
+  });
+
+  const key = state.modelsPerClassSortKey, dir = state.modelsPerClassSortDir;
+  const getSortVal = (d)=> key==='model' ? d.model : (d.perClass[key] ? d.perClass[key].mean : -1);
+  data.sort((a,b)=>{
+    const va=getSortVal(a), vb=getSortVal(b);
+    if (typeof va==='string') return dir==='asc'? va.localeCompare(vb) : vb.localeCompare(va);
+    return dir==='asc'? va-vb : vb-va;
+  });
+
+  const headCols = [{key:'model', label:'Model'}, ...classes.map(cls=>({key:cls, label:cls}))];
+  const thead = '<tr>'+headCols.map(c=>{
+    const cls2 = key===c.key ? 'sortable sorted-'+dir : 'sortable';
+    const arrow = key===c.key ? (dir==='asc'?' ▲':' ▼') : '';
+    const label = c.key==='model' ? esc(c.label) : `<span style="color:${classColor(c.key)}">${esc(c.label)}</span>`;
+    return `<th data-pcsort-key="${esc(c.key)}" class="${cls2}">${label}${arrow}</th>`;
+  }).join('')+'</tr>';
+
+  let rows='';
+  data.forEach(d=>{
+    const mc = modelColor(d.model);
+    rows += `<tr><td><span class="model-chip" style="background:${mc}22;color:${mc};border:1px solid ${mc}66;">${esc(d.model)}</span></td>` + classes.map(cls=>{
+      const pm = d.perClass[cls];
+      if (!pm || pm.n===0) return `<td class="mono">–</td>`;
+      return `<td class="mono">${pct(pm.mean)} <span class="mini-card-std">± ${pct(pm.std)}</span></td>`;
+    }).join('') + '</tr>';
+  });
+
+  container.innerHTML = `<p class="card-note">Mean ± standard deviation of ${esc(metricLabel)} across tiles, per model and class. Click a column to rank models by it.</p>
+  <div class="cm-scroll"><table class="data-table"><thead>${thead}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 /* ---------- Per-tile, cross-model comparison ---------- */
@@ -2039,7 +2354,7 @@ function renderTileCompareKpis(matches){
 
 function renderTileCompareTable(matches){
   const container = document.getElementById('tileCompareTable');
-  const classes = effectiveClassOrder().filter(cls=>matches.some(t=>getClassM(t, cls)));
+  const classes = effectiveClassOrder().filter(cls=>matches.some(t=>getClassMAgg(t, cls)));
   if (!classes.length || !matches.length){ container.innerHTML = '<p class="chart-empty">No class data for the selected model(s).</p>'; return; }
 
   const baseline = matches[0];
@@ -2065,7 +2380,7 @@ function renderTileCompareTable(matches){
   let body = '';
   classes.forEach(cls=>{
     body += `<tr><td>${esc(cls)}</td>`;
-    const ms = matches.map(t=>getClassM(t, cls) || null);
+    const ms = matches.map(t=>getClassMAgg(t, cls) || null);
     ms.forEach(m=>{
       if (m){
         const iou = iouFromPR(m.precision, m.recall);
@@ -2454,14 +2769,17 @@ function countColor(t){
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 }
 
-function renderConfusionMatrix(container, eff, mode){
+function renderConfusionMatrix(container, eff, mode, opts){
   const { labels, matrix } = eff;
   const n = labels.length;
   if (!n){ container.innerHTML = '<p class="chart-empty">No confusion matrix data.</p>'; return; }
 
   const rowSums = matrix.map(row=>row.reduce((a,b)=>a+b,0));
   const colSums = labels.map((_,j)=>matrix.reduce((s,row)=>s+row[j],0));
-  const maxVal = Math.max(1, ...matrix.flat());
+  // When comparing two models side-by-side, the caller passes sharedMaxVal (the larger of the
+  // two matrices' max cells) so raw-count color intensity is directly comparable between them,
+  // instead of each matrix separately normalizing to its own max and looking equally "dark".
+  const maxVal = (opts && opts.sharedMaxVal) ? opts.sharedMaxVal : Math.max(1, ...matrix.flat());
 
   const cellW = 66, cellH = 30, labelW = 150, headerH = 96;
   const width = labelW + n*cellW + 10;
@@ -2496,6 +2814,172 @@ function renderConfusionMatrix(container, eff, mode){
   container.innerHTML = `<div class="cm-scroll"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${header}${cells}</svg></div>`;
 }
 
+// ---- PNG export for the confusion matrix ----
+// The on-screen chart uses fixed pixel dimensions tuned for typical class names, so a long
+// name (e.g. "Roof structures") can run past the header band and get clipped ("Roofstruct").
+// Rather than rasterize that as-is, export rebuilds the matrix from the underlying counts with
+// dimensions sized to whatever labels are actually present, so every label prints in full.
+function measureTextWidth(text, font){
+  if (!measureTextWidth._ctx) measureTextWidth._ctx = document.createElement('canvas').getContext('2d');
+  measureTextWidth._ctx.font = font;
+  return measureTextWidth._ctx.measureText(text).width;
+}
+
+function buildExportConfusionSvg(eff, mode, opts){
+  const { labels, matrix } = eff;
+  const n = labels.length;
+  if (!n) return null;
+
+  const rowSums = matrix.map(row=>row.reduce((a,b)=>a+b,0));
+  const colSums = labels.map((_,j)=>matrix.reduce((s,row)=>s+row[j],0));
+  const maxVal = (opts && opts.sharedMaxVal) ? opts.sharedMaxVal : Math.max(1, ...matrix.flat());
+
+  const root = getComputedStyle(document.documentElement);
+  const inkColor = (root.getPropertyValue('--ink')||'#232017').trim();
+  const inkSoft = (root.getPropertyValue('--ink-soft')||'#6B6856').trim();
+  const fontMono = (root.getPropertyValue('--font-mono')||"'IBM Plex Mono', monospace").trim();
+  const bgCard = (root.getPropertyValue('--bg-card')||'#F9F9F2').trim();
+  const colFont = `10px ${fontMono}`;
+  const rowFont = `11px ${fontMono}`;
+
+  const cellW = 66, cellH = 30;
+  const angleDeg = 40, angleRad = angleDeg*Math.PI/180;
+
+  // Row-label column: wide enough for the longest class name, right-aligned against the grid.
+  const maxRowLabelW = Math.max(...labels.map(l=>measureTextWidth(l, rowFont)));
+  const labelW = Math.max(90, Math.ceil(maxRowLabelW) + 24);
+
+  // Column headers are rotated -40°; the longest label sets both how tall the header band
+  // must be (so it isn't clipped at the top) and how much extra room the right edge needs
+  // (so the last column's label isn't clipped, which is the "Roofstruct" bug).
+  const maxColLabelW = Math.max(...labels.map(l=>measureTextWidth(l, colFont)));
+  const headerH = Math.ceil(maxColLabelW*Math.sin(angleRad)) + 46;
+  const rightPad = Math.ceil(maxColLabelW*Math.cos(angleRad)) + 14;
+
+  const width = labelW + n*cellW + rightPad;
+  const height = headerH + n*cellH + 10;
+
+  let header = `<text x="${labelW-6}" y="${headerH-cellH-14}" text-anchor="end" font-family="${fontMono}" font-size="10" font-style="italic" fill="${inkSoft}">predicted &#8594;</text>`;
+  labels.forEach((lab,j)=>{
+    const x = labelW + j*cellW + cellW/2;
+    header += `<text x="${x}" y="${headerH-10}" text-anchor="start" font-family="${fontMono}" font-size="10" fill="${inkSoft}" transform="rotate(-${angleDeg} ${x} ${headerH-10})">${esc(lab)}</text>`;
+  });
+
+  let cells = '';
+  labels.forEach((rowLab,i)=>{
+    const y = headerH + i*cellH;
+    cells += `<text x="${labelW-10}" y="${(y+cellH/2+4).toFixed(1)}" text-anchor="end" font-family="${fontMono}" font-size="11" fill="${inkColor}">${esc(rowLab)}</text>`;
+    labels.forEach((colLab,j)=>{
+      const x = labelW + j*cellW;
+      const raw = matrix[i][j];
+      let t, text;
+      if (mode==='row'){ t = rowSums[i]>0 ? raw/rowSums[i] : 0; text = raw>0 || rowSums[i]>0 ? pct(t,0) : '–'; }
+      else if (mode==='col'){ t = colSums[j]>0 ? raw/colSums[j] : 0; text = raw>0 || colSums[j]>0 ? pct(t,0) : '–'; }
+      else { t = raw/maxVal; text = fmtBig(raw); }
+      const fill = countColor(t);
+      const diag = i===j;
+      cells += `<rect x="${x+2}" y="${y+2}" width="${cellW-4}" height="${cellH-4}" rx="3" fill="${fill}" ${diag?`stroke="${inkColor}" stroke-width="1.4"`:''}/>`;
+      cells += `<text x="${x+cellW/2}" y="${(y+cellH/2+3.5).toFixed(1)}" text-anchor="middle" font-family="${fontMono}" font-size="10" fill="${t>0.55?'#F4F2E8':'rgba(0,0,0,.65)'}">${esc(text)}</text>`;
+    });
+  });
+
+  const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect x="0" y="0" width="${width}" height="${height}" fill="${bgCard}"/>${header}${cells}</svg>`;
+  return { svgStr, width, height };
+}
+
+function svgMarkupToCanvas(svgStr, width, height, scale){
+  return new Promise((resolve, reject)=>{
+    const blob = new Blob([svgStr], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width*scale; canvas.height = height*scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.onerror = (e)=>{ URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+}
+
+function downloadCanvasAsPng(canvas, filename){
+  canvas.toBlob(blob=>{
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+function downloadTextAsFile(content, filename, mimeType){
+  const blob = new Blob([content], {type: mimeType});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function slugify(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'model'; }
+
+// Pulls the drawable content out of one of our self-contained "<svg ...>...</svg>" strings,
+// so two of them can be placed side by side inside a single outer <svg> (used when comparing
+// two models — this keeps the SVG export and the PNG export pixel-identical in layout, since
+// the PNG is just this same combined markup rasterized).
+function extractSvgInner(svgStr){
+  const m = /^<svg[^>]*>([\s\S]*)<\/svg>\s*$/.exec(svgStr);
+  return m ? m[1] : svgStr;
+}
+
+function composeConfusionExportSvg(built1, built2, gap){
+  const w = built1.width + (built2 ? gap+built2.width : 0);
+  const h = Math.max(built1.height, built2 ? built2.height : 0);
+  const bgCard = (getComputedStyle(document.documentElement).getPropertyValue('--bg-card')||'#F9F9F2').trim();
+  let content = `<rect x="0" y="0" width="${w}" height="${h}" fill="${bgCard}"/>`;
+  content += `<g transform="translate(0,0)">${extractSvgInner(built1.svgStr)}</g>`;
+  if (built2) content += `<g transform="translate(${built1.width+gap},0)">${extractSvgInner(built2.svgStr)}</g>`;
+  const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${content}</svg>`;
+  return { svgStr, width: w, height: h };
+}
+
+async function exportModelsConfusionPlot(){
+  const format = document.getElementById('modelsConfusionExportFormatSelect').value; // 'png' or 'svg'
+  const labels = effectiveClassOrder();
+  const { commonTileIds } = modelsCompareContext();
+  const summed1 = sumConfusionForModel(state.modelsConfusionModel, labels, commonTileIds);
+  if (!summed1) return;
+
+  const comparing = !!state.modelsConfusionModel2 && state.modelsConfusionModel2 !== state.modelsConfusionModel;
+  const summed2 = comparing ? sumConfusionForModel(state.modelsConfusionModel2, labels, commonTileIds) : null;
+  const sharedMax = (comparing && state.modelsConfusionMode==='raw' && summed1 && summed2)
+    ? Math.max(1, Math.max(...summed1.matrix.flat()), Math.max(...summed2.matrix.flat()))
+    : null;
+  const opts = sharedMax ? {sharedMaxVal: sharedMax} : null;
+
+  const built1 = buildExportConfusionSvg(summed1, state.modelsConfusionMode, opts);
+  if (!built1) return;
+  const built2 = (comparing && summed2) ? buildExportConfusionSvg(summed2, state.modelsConfusionMode, opts) : null;
+
+  const combined = built2 ? composeConfusionExportSvg(built1, built2, 24) : built1;
+  const baseName = built2
+    ? `confusion_matrix_${slugify(state.modelsConfusionModel)}_vs_${slugify(state.modelsConfusionModel2)}_${state.modelsConfusionMode}`
+    : `confusion_matrix_${slugify(state.modelsConfusionModel)}_${state.modelsConfusionMode}`;
+
+  if (format === 'svg'){
+    downloadTextAsFile(combined.svgStr, `${baseName}.svg`, 'image/svg+xml;charset=utf-8');
+  } else {
+    const scale = 2; // export PNG at 2x resolution for crisp text
+    const canvas = await svgMarkupToCanvas(combined.svgStr, combined.width, combined.height, scale);
+    downloadCanvasAsPng(canvas, `${baseName}.png`);
+  }
+}
+
 
 function tooltipHandler(e){
   const tip = document.getElementById('tooltip');
@@ -2520,8 +3004,15 @@ function init(){
   document.getElementById('clearBtn').addEventListener('click', ()=>{
     state.tiles.clear(); state.expandedTiles.clear(); state.errors=[]; state.selectedClass=null; state.modelFilter=null;
     state.excludeZeroSupport=true; document.getElementById('excludeZeroSupportCheckbox').checked=true;
-    state.showAllClasses=false; document.getElementById('showAllClassesCheckbox').checked=false;
+    state.zeroSupportGranularity='tile'; document.getElementById('zeroSupportModeSelect').value='tile'; updateZeroSupportModeVisibility();
+    state.showAllClasses=true; document.getElementById('showAllClassesCheckbox').checked=true;
     state.classGroups=[]; state.classManagerSelected=new Set();
+    state.modelsCompareModels=null; state.modelsCompareKnownModels=null;
+    state.modelsCompareCommonOnly=false; document.getElementById('modelsCompareCommonOnlyCheckbox').checked=false;
+    state.modelsSummarySortKey=null; state.modelsSummarySortDir='desc';
+    state.modelsPerClassSortKey='model'; state.modelsPerClassSortDir='asc';
+    state.modelsPerClassMetric='f1'; document.getElementById('modelsPerClassMetricSelect').value='f1';
+    state.modelsConfusionModel=null; state.modelsConfusionModel2=null;
     onDataChanged();
   });
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
@@ -2538,10 +3029,19 @@ function init(){
 
   document.getElementById('excludeZeroSupportCheckbox').addEventListener('change', e=>{
     state.excludeZeroSupport = e.target.checked;
+    updateZeroSupportModeVisibility();
     updateHeaderBadge();
     renderQualityBanner();
     rerenderCurrent();
   });
+
+  document.getElementById('zeroSupportModeSelect').addEventListener('change', e=>{
+    state.zeroSupportGranularity = e.target.value;
+    updateHeaderBadge();
+    renderQualityBanner();
+    rerenderCurrent();
+  });
+  updateZeroSupportModeVisibility();
 
   document.getElementById('showAllClassesCheckbox').addEventListener('change', e=>{
     state.showAllClasses = e.target.checked;
@@ -2614,17 +3114,69 @@ function init(){
 
   document.getElementById('modelsMetricSelect').addEventListener('change', e=>{
     state.modelsChartMetric = e.target.value;
-    renderModelsClassChart(qualityTiles(), state.modelsChartMetric);
+    const {activeModels, tiles} = modelsCompareContext();
+    renderModelsClassChart(tiles, state.modelsChartMetric, 'modelsClassChart', activeModels);
+  });
+
+  document.getElementById('modelsPerClassMetricSelect').addEventListener('change', e=>{
+    state.modelsPerClassMetric = e.target.value;
+    const {activeModels, tiles} = modelsCompareContext();
+    renderModelsPerClassTable(tiles, activeModels);
+  });
+
+  document.getElementById('modelsCompareToggles').addEventListener('click', e=>{
+    const btn = e.target.closest('.model-toggle');
+    if (!btn) return;
+    const m = btn.getAttribute('data-model');
+    if (state.modelsCompareModels.has(m)){
+      if (state.modelsCompareModels.size>1) state.modelsCompareModels.delete(m); // keep at least one
+    } else {
+      state.modelsCompareModels.add(m);
+    }
+    renderModelsTab();
+  });
+
+  document.getElementById('modelsCompareCommonOnlyCheckbox').addEventListener('change', e=>{
+    state.modelsCompareCommonOnly = e.target.checked;
+    renderModelsTab();
+  });
+
+  document.getElementById('modelsSummaryTable').addEventListener('click', e=>{
+    const th = e.target.closest('th[data-modelsort-key]');
+    if (!th) return;
+    const k = th.getAttribute('data-modelsort-key');
+    if (state.modelsSummarySortKey===k) state.modelsSummarySortDir = state.modelsSummarySortDir==='asc'?'desc':'asc';
+    else { state.modelsSummarySortKey=k; state.modelsSummarySortDir = k==='model' ? 'asc' : 'desc'; }
+    const {activeModels, tiles} = modelsCompareContext();
+    renderModelsSummaryTable(tiles, activeModels);
+  });
+
+  document.getElementById('modelsPerClassTable').addEventListener('click', e=>{
+    const th = e.target.closest('th[data-pcsort-key]');
+    if (!th) return;
+    const k = th.getAttribute('data-pcsort-key');
+    if (state.modelsPerClassSortKey===k) state.modelsPerClassSortDir = state.modelsPerClassSortDir==='asc'?'desc':'asc';
+    else { state.modelsPerClassSortKey=k; state.modelsPerClassSortDir = k==='model' ? 'asc' : 'desc'; }
+    const {activeModels, tiles} = modelsCompareContext();
+    renderModelsPerClassTable(tiles, activeModels);
   });
 
   document.getElementById('modelsConfusionModelSelect').addEventListener('change', e=>{
     state.modelsConfusionModel = e.target.value;
-    renderModelsConfusion();
+    const {activeModels, commonTileIds} = modelsCompareContext();
+    renderModelsConfusion(activeModels, commonTileIds);
+  });
+  document.getElementById('modelsConfusionModel2Select').addEventListener('change', e=>{
+    state.modelsConfusionModel2 = e.target.value || null;
+    const {activeModels, commonTileIds} = modelsCompareContext();
+    renderModelsConfusion(activeModels, commonTileIds);
   });
   document.getElementById('modelsConfusionModeSelect').addEventListener('change', e=>{
     state.modelsConfusionMode = e.target.value;
-    renderModelsConfusion();
+    const {activeModels, commonTileIds} = modelsCompareContext();
+    renderModelsConfusion(activeModels, commonTileIds);
   });
+  document.getElementById('modelsConfusionExportBtn').addEventListener('click', exportModelsConfusionPlot);
 
   document.getElementById('tileCompareSelect').addEventListener('change', e=>{
     state.tileCompare = e.target.value;

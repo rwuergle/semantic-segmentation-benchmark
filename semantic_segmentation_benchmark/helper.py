@@ -52,7 +52,13 @@ def write_copc_from_lasdata(las_data: laspy.LasData, output_path: str) -> None:
                 tmp_path,
                 {
                     "type": "writers.copc",
-                    "filename": output_path
+                    "filename": output_path,
+                    "scale_x": float(las_data.header.scales[0]),
+                    "scale_y": float(las_data.header.scales[1]),
+                    "scale_z": float(las_data.header.scales[2]),
+                    "offset_x": float(las_data.header.offsets[0]),
+                    "offset_y": float(las_data.header.offsets[1]),
+                    "offset_z": float(las_data.header.offsets[2]),
                 }
             ]
         }

@@ -41,6 +41,26 @@ Another important point to mention is that most of point clouds have generated a
 
 The method then continues to compute some metrics which will finally be added to the *.json*. the file may then be drag and dropped into [tile_classification_dashboard.html](../tile_classification_dashboard.html), which is the visualisation of the results. 
 
+### 1.1.1 Example
+````python
+from semantic_segmentation_benchmark.constants import SITN_REMAP, FLAI_REMAP
+from tqdm import tqdm
+import os
+
+ground_truth_dir =r"D:\data\reference_tiles"
+predictions_dir = r"D:\data\predicted_tiles_flai"
+
+for file in tqdm(os.listdir(predictions_dir), unit="file", desc="Generating reports"):
+    if (not file.endswith(".laz")) and (not file.endswith(".las")):
+        continue
+    
+    predictions_path = os.path.join(predictions_dir, file)
+    ground_truth_path = os.path.join(ground_truth_dir, file)
+
+    Benchmark.generate_report(predictions_path, ground_truth_path, remap_ground_truth=SITN_REMAP, remap_predictions=FLAI_REMAP, model_name="flai", matching_precision=3, use_kdtree_matching=False)
+
+````
+
 ## 1.2 Visualisation html
 
 ### 1.2.1 Load JSON Reports
@@ -90,5 +110,5 @@ or use the static method that allows to compare two classifier between each othe
 | **0** |🟪| both agree but defer from GT | `[0.7, 0.3, 0.6]` |
 | **21** |🟥| Neither matches GT | `[1.0, 0.0, 0.2]` |
 
-![Visualisation of spatial comparison between flai and minkunet classifier](./images/spatial_comparison_visual.png)
-*Figure: Visualisation of the spatial comparison between flai and minkunet classifiers*
+![Visualisation of spatial comparison between minkunet and flai classifier](./images/spatial_comparison_visual.png)
+*Figure: Visualisation of the spatial comparison between minkunet and flai classifiers*
