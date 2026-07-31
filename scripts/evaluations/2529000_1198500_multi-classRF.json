@@ -1,0 +1,105 @@
+{
+    "balanced_accuracy": 0.6606369647456848,
+    "cohen_kappa": 0.960790970927249,
+    "report_dict": {
+        "Other": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 83052.0
+        },
+        "Ground": {
+            "precision": 0.9461022463420011,
+            "recall": 0.9957999415819213,
+            "f1-score": 0.9703151554148193,
+            "support": 10424855.0
+        },
+        "vegetation": {
+            "precision": 0.998441582141863,
+            "recall": 0.9861109526551332,
+            "f1-score": 0.9922379604197527,
+            "support": 38216012.0
+        },
+        "Building roofs": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 0.0
+        },
+        "Cars": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 0.0
+        },
+        "Building facades": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 0.0
+        },
+        "accuracy": 0.986503117698722,
+        "macro avg": {
+            "precision": 0.32409063808064403,
+            "recall": 0.3303184823728424,
+            "f1-score": 0.3270921859724287,
+            "support": 48723919.0
+        },
+        "weighted avg": {
+            "precision": 0.9855412947739706,
+            "recall": 0.986503117698722,
+            "f1-score": 0.9858560967100932,
+            "support": 48723919.0
+        }
+    },
+    "confusion_matrix": [
+        [
+            0,
+            66518,
+            16533,
+            0,
+            0,
+            1
+        ],
+        [
+            1411,
+            10381070,
+            42288,
+            3,
+            0,
+            83
+        ],
+        [
+            4198,
+            524873,
+            37685228,
+            121,
+            8,
+            1584
+        ],
+        [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        ],
+        [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        ],
+        [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+        ]
+    ]
+}
